@@ -1,0 +1,61 @@
+# Built In Austin checkpoint: the companies below were collected from page 8.
+# When resuming manual additions from Built In, start from page 8. Earlier pages have already been processed.
+
+cerebri AI
+Swarmer
+Truemed
+Cyberhill Partners
+Modern Intelligence
+BetterUp
+Industrious
+Freese and Nichols
+Velocity Electronics
+Victory
+ABBY
+SiFive
+SafeLease
+Shift Paradigm
+Agicap
+FloSports
+dbt Labs
+Ontic
+Sembi
+Macmillan
+Velocity Electronics
+Papaya Global
+Easy Street Capital
+Care.com
+Dialpad
+YETI
+Surgical Data Science Collective (SDSC)
+The Zebra
+Sustainment
+webAI
+Natera
+GOLF+
+BirdDog Adventures, Inc.
+TerraFirma, Inc.
+Unit 140
+Black Ore
+CWS Apartment
+Redgate Software
+Cerebri AI
+Fliff
+Digital Realty
+MirrorWeb
+SourceDay
+ExpediaGroup
+Praetorian
+Paradromics
+EpisodeSix
+Process Pro Consulting
+Civitech
+Park Place Finance
+Austin Capital Bank
+Method (methodfi.com)
+T1 Energy Inc.
+SmartBiz Loans
+Modern Intelligence
+SpaceX
+EBQ
+

@@ -38,6 +38,8 @@ APPLICATION_MATERIALS_DIR = ROOT / "application_materials"
 GENERATED_DIR = ROOT / "application_materials" / "generated"
 GENERATED_JOB_DESCRIPTIONS_DIR = GENERATED_DIR / "job_descriptions"
 DERIVED_PROFILE_DIR = ROOT / "derived_profile"
+CRAWLER_CACHE_DIR = ROOT / "crawler_cache"
+MATCHED_JOBS_PATH = CRAWLER_CACHE_DIR / "matched_jobs.jsonl"
 
 USER_AGENT = Config.USER_AGENT or "application-material-generator/0.1"
 DEFAULT_TIMEOUT_SECONDS = 30
@@ -140,6 +142,8 @@ def infer_board_slug_from_host(url: str) -> str | None:
     host_parts = [part for part in parsed.netloc.lower().split(".") if part and part != "www"]
     if not host_parts:
         return None
+    if host_parts[0] in {"careers", "jobs"} and len(host_parts) > 1:
+        return host_parts[1]
     return host_parts[0]
 
 
@@ -151,7 +155,7 @@ def resolve_greenhouse_job(url: str) -> tuple[str, int, str]:
 
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
-    query_id = query.get("id", [None])[0]
+    query_id = query.get("id", [None])[0] or query.get("gh_jid", [None])[0]
     inferred_board = infer_board_slug_from_host(url)
     if inferred_board and query_id and query_id.isdigit():
         return inferred_board, int(query_id), url
@@ -179,7 +183,15 @@ def title_case_from_slug(slug: str) -> str:
 
 def fetch_job_details(url: str) -> JobDetails:
     board, job_id, normalized_source_url = resolve_greenhouse_job(url)
-    payload = fetch_json(greenhouse_job_detail_url(board, job_id))
+    try:
+        payload = fetch_json(greenhouse_job_detail_url(board, job_id))
+    except HTTPError as exc:
+        if exc.code != 404:
+            raise
+        snapshot_job = snapshot_job_details(board, job_id, url)
+        if snapshot_job is not None:
+            return snapshot_job
+        raise
 
     company_name = title_case_from_slug(board)
     title = clean_display_text(str(payload.get("title") or "Untitled Role"))
@@ -212,6 +224,40 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
         if line:
             rows.append(json.loads(line))
     return rows
+
+
+def snapshot_job_details(board: str | None, job_id: int, source_url: str) -> JobDetails | None:
+    if not MATCHED_JOBS_PATH.exists():
+        return None
+
+    for row in load_jsonl(MATCHED_JOBS_PATH):
+        row_job_id = row.get("greenhouse_job_id")
+        row_board = row.get("company_slug")
+        if row_job_id != job_id:
+            continue
+        if board and row_board != board:
+            continue
+
+        company_slug = str(row_board or board or "")
+        company_name = clean_display_text(str(row.get("company_name") or title_case_from_slug(company_slug)))
+        title = clean_display_text(str(row.get("job_title") or "Untitled Role"))
+        location = clean_display_text(str(row.get("job_location") or ""))
+        description = html_to_text(str(row.get("job_description") or ""))
+        absolute_url = str(row.get("job_url") or source_url)
+
+        return JobDetails(
+            source_url=source_url,
+            normalized_source_url=absolute_url,
+            company_slug=company_slug,
+            company_name=company_name,
+            job_id=job_id,
+            title=title,
+            location=location,
+            description=description,
+            absolute_url=absolute_url,
+        )
+
+    return None
 
 
 def load_candidate_context() -> CandidateContext:
@@ -298,6 +344,8 @@ ROLE_FAMILY_EVIDENCE_TAGS = {
     "technical_support_engineering": ("technical_support", "developer_relations_or_support"),
     "technical_writing": ("technical_writing", "developer_relations_or_support"),
 }
+
+SOFTWARE_ENGINEERING_SKILL_SUPPORT_SOURCE_FILE = "resumes_cov_letters/archive/vargas_software_engineer_resume.docx"
 
 CUSTOMER_FACING_SKILL_SOURCE_ORDER = {
     "solutions_engineering": (
@@ -430,11 +478,34 @@ def infer_skill_labels(job: JobDetails) -> list[str]:
         score = sum(job_text.count(keyword) for keyword in keywords)
         scored_labels.append((score, label))
 
-    labels = [label for score, label in sorted(scored_labels, reverse=True) if score > 0]
+    labels: list[str] = []
+    seen_slots: set[str] = set()
+    for score, label in sorted(scored_labels, reverse=True):
+        if score <= 0:
+            continue
+        slot = software_engineering_skill_slot(label)
+        if slot in seen_slots:
+            continue
+        labels.append(label)
+        seen_slots.add(slot)
+
     for fallback in DEFAULT_SKILL_LABELS:
-        if fallback not in labels:
+        slot = software_engineering_skill_slot(fallback)
+        if fallback not in labels and slot not in seen_slots:
             labels.append(fallback)
+            seen_slots.add(slot)
     return labels[:4]
+
+
+def software_engineering_skill_slot(label: str) -> str:
+    normalized_label = normalize_match_text(label)
+    if any(keyword in normalized_label for keyword in ("backend", "api", "language", "framework")):
+        return "backend"
+    if any(keyword in normalized_label for keyword in ("data", "database", "persistence", "search")):
+        return "data"
+    if any(keyword in normalized_label for keyword in ("cloud", "devops", "infrastructure")):
+        return "cloud"
+    return "delivery"
 
 
 def extract_line_body(text: str) -> str:
@@ -486,15 +557,73 @@ def required_source_texts(source_lines: dict[str, str], locations: tuple[str, ..
     return [source_lines[location] for location in locations]
 
 
-def software_engineering_skill_body_for_label(label: str, source_lines: dict[str, str]) -> str:
-    normalized_label = normalize_match_text(label)
-    if any(keyword in normalized_label for keyword in ("backend", "api", "language", "framework")):
+def software_engineering_skill_body_for_label(
+    label: str,
+    source_lines: dict[str, str],
+    support_source_lines: dict[str, str],
+) -> str:
+    slot = software_engineering_skill_slot(label)
+    if slot == "backend":
         return extract_line_body(source_lines["skills/paragraph_13"])
-    if any(keyword in normalized_label for keyword in ("data", "database", "persistence", "search")):
-        return extract_line_body(source_lines["skills/paragraph_15"])
-    if any(keyword in normalized_label for keyword in ("cloud", "devops", "infrastructure")):
+    if slot == "data":
+        body = extract_line_body(source_lines["skills/paragraph_15"])
+        if "alembic" not in normalize_match_text(body):
+            body = body.replace("schema design; ", "schema design; Alembic migrations; ")
+            if "alembic" not in normalize_match_text(body):
+                support_body = extract_line_body(support_source_lines["skills/paragraph_14"])
+                if "alembic" in normalize_match_text(support_body):
+                    body = f"{body}; Alembic migrations"
+        return clean_display_text(body)
+    if slot == "cloud":
         return extract_line_body(source_lines["skills/paragraph_14"])
-    return extract_line_body(source_lines["skills/paragraph_16"])
+    body = extract_line_body(source_lines["skills/paragraph_16"])
+    if "bats" not in normalize_match_text(body):
+        body = body.replace("Pytest (unit/integration testing)", "Pytest (unit/integration testing), BATS")
+    return clean_display_text(body)
+
+
+def join_phrases(items: list[str]) -> str:
+    if not items:
+        return "software engineering"
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
+def build_software_engineering_resume_summary(job: JobDetails) -> str:
+    job_text = normalize_match_text(f"{job.title} {job.description}")
+    infra_score = sum(
+        job_text.count(token)
+        for token in ("infrastructure", "platform", "reliability", "site reliability", "devops", "cloud")
+    )
+    data_score = sum(
+        job_text.count(token)
+        for token in ("data", "database", "databases", "etl", "pipeline", "pipelines", "sql", "storage")
+    )
+    api_score = sum(
+        job_text.count(token)
+        for token in ("api", "apis", "integration", "integrations", "service", "services")
+    )
+
+    if infra_score >= 3 and infra_score > data_score:
+        focus = "backend services, data pipelines, and cloud infrastructure"
+    elif api_score > 0:
+        focus = "backend services, REST APIs, and data pipelines"
+    else:
+        focus = "backend services and data pipelines"
+    return f"Software engineer with 6+ years of experience building {focus}."
+
+
+def normalize_cover_letter_paragraphs(paragraphs: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for paragraph in paragraphs:
+        cleaned = clean_display_text(paragraph)
+        if cleaned and cleaned[-1] not in ".!?":
+            cleaned += "."
+        normalized.append(cleaned)
+    return normalized
 
 
 def build_software_engineering_resume_content(
@@ -503,9 +632,10 @@ def build_software_engineering_resume_content(
     job: JobDetails,
 ) -> tuple[list[str], str, list[str], list[str]]:
     source_lines = preferred_resume_lookup(context, template_config.preferred_resume_source_file)
+    support_source_lines = preferred_resume_lookup(context, SOFTWARE_ENGINEERING_SKILL_SUPPORT_SOURCE_FILE)
     skill_labels = infer_skill_labels(job)
     skills_lines = [
-        f"{label} {software_engineering_skill_body_for_label(label, source_lines)}"
+        f"{label} {software_engineering_skill_body_for_label(label, source_lines, support_source_lines)}"
         for label in skill_labels
     ]
     professional_development_body = source_lines[template_config.professional_development_body_source]
@@ -559,6 +689,9 @@ def generate_resume_summary(
     relevant_evidence: list[dict[str, Any]],
     role_family: str,
 ) -> str:
+    if role_family == "software_engineering":
+        return build_software_engineering_resume_summary(job)
+
     family_phrase = {
         "software_engineering": "backend and platform software engineering",
         "solutions_engineering": "customer-facing technical and solutions work",
@@ -606,29 +739,44 @@ def build_software_engineering_cover_letter(job: JobDetails, context: CandidateC
     def skill_phrase_from_label(label: str) -> str:
         normalized_label = normalize_match_text(label)
         if "backend" in normalized_label or "api" in normalized_label:
-            return "Python backend systems and APIs"
+            return "Python backend systems"
         if "data" in normalized_label or "persistence" in normalized_label:
             return "data modeling and persistence"
         if "cloud" in normalized_label or "infrastructure" in normalized_label:
-            return "cloud infrastructure and deployment"
-        return "delivery automation and engineering quality"
+            return "cloud infrastructure"
+        return "delivery automation"
+
+    emphasis_phrases: list[str] = []
+    for label in skill_labels[:3]:
+        phrase = skill_phrase_from_label(label)
+        if phrase not in emphasis_phrases:
+            emphasis_phrases.append(phrase)
 
     opening = (
         f"I am interested in the {job.title} role at {job.company_name}. "
-        "My background includes six years of building backend systems, APIs, web applications, and data pipelines. "
-        f"I am especially drawn to work where I can apply strengths in {', '.join(skill_phrase_from_label(label) for label in skill_labels[:3])}."
+        "My background includes six years of building backend systems, REST APIs, web applications, and data pipelines. "
+        f"I am particularly drawn to roles where I can apply strengths in {join_phrases(emphasis_phrases)}."
     )
-    backend = first_sentences(get_evidence_text(context, ("ev_0061", "ev_0068", "ev_0064")), 3)
-    delivery = first_sentences(get_evidence_text(context, ("ev_0007", "ev_0047")), 5)
+    backend = (
+        "As a Senior Software Engineer at IQVIA, I used Python on a daily basis and built high-throughput pipelines, "
+        "web applications, REST APIs, and containerized services for internal research teams processing next-generation sequencing data. "
+        "Those systems integrated internal databases, external APIs, and network storage, and produced QC and reporting datasets for downstream services and users. "
+        "I also used workflow management tooling like Nextflow and AWS ECS to orchestrate containers across local HPC and AWS environments."
+    )
+    delivery = (
+        "As a development lead, I managed projects from early prototyping through iterative delivery. "
+        "One example was a Python CLI application that automated a critical QC workflow by combining laboratory-system data with project-management data, "
+        "using Pydantic, relational databases, and existing tooling to accelerate delivery while incorporating end-user feedback over multiple sprints. "
+        "Across projects, I also configured CI/CD automation in AWS and Azure Devops, including immutable Docker image tagging and semantic versioning for release traceability."
+    )
     growth = (
-        "In the time since my last full-time role, I have kept my skills sharp by building projects and continuing to deepen my AI tooling knowledge. "
-        f"{get_evidence_text(context, ('ev_0057', 'ev_0021'))}"
+        "Since my last full-time role, I have kept my skills sharp by building projects and deepening my AI tooling knowledge through recent work on RAG pipelines, vector databases, and multi-agent orchestration."
     )
     closing = (
         f"Thank you for considering my application for the {job.title} role at {job.company_name}. "
         "I would welcome the opportunity to discuss how my background could support your team."
     )
-    return CoverLetterContent(body_paragraphs=[opening, backend, delivery, growth, closing])
+    return CoverLetterContent(body_paragraphs=normalize_cover_letter_paragraphs([opening, backend, delivery, growth, closing]))
 
 
 def build_customer_facing_cover_letter(
