@@ -1,61 +1,78 @@
-# Built In Austin checkpoint: the companies below were collected from page 8.
-# When resuming manual additions from Built In, start from page 8. Earlier pages have already been processed.
+# Built In Austin checkpoint: the companies below were collected from page 19.
+# When resuming manual additions from Built In, start from page 19. Earlier pages have already been processed.
 
-cerebri AI
-Swarmer
-Truemed
-Cyberhill Partners
-Modern Intelligence
+
+
+
+
+WP Engine
+UFCU
+Routefusion
+
+Nutrabolt
+All Options
+JLL
+Reflex
+SchoolLinks
+Forcepoint
 BetterUp
-Industrious
-Freese and Nichols
-Velocity Electronics
-Victory
-ABBY
-SiFive
-SafeLease
-Shift Paradigm
-Agicap
-FloSports
-dbt Labs
-Ontic
-Sembi
-Macmillan
-Velocity Electronics
-Papaya Global
-Easy Street Capital
-Care.com
-Dialpad
-YETI
-Surgical Data Science Collective (SDSC)
+Aquaria
+QuoteWell
+Zendesk
+TerraFirma, Inc
 The Zebra
-Sustainment
-webAI
-Natera
-GOLF+
-BirdDog Adventures, Inc.
-TerraFirma, Inc.
-Unit 140
-Black Ore
-CWS Apartment
-Redgate Software
-Cerebri AI
-Fliff
-Digital Realty
-MirrorWeb
-SourceDay
-ExpediaGroup
-Praetorian
-Paradromics
-EpisodeSix
-Process Pro Consulting
-Civitech
-Park Place Finance
-Austin Capital Bank
-Method (methodfi.com)
-T1 Energy Inc.
-SmartBiz Loans
-Modern Intelligence
-SpaceX
-EBQ
+Lee Tilford Agency, Inc.
+Aalo Atomics
+Maxwell Locke & Ritter LLP
+Baxter Planning
+NextWork
+Percepto
+BizScout
+Diligent Robotics
+athenahealth
+UpEquity
+Quali
+Mesa
+Telnyx
+Truemed
+Verisoul
+Gartner
+Episode Six
+Cyberhill Partners
+Planview
+BadJupiter
+Kargo
+Favish
+Remedy
+Side Label Productions
+Eagle Eye Networks
+Noow
+Firefly Aerospace
+Balyasny Asset Management
+Quansight
+Drone Dispatch
+Zivid
+Harte Hanks
+UneeQ
+Austin Grooming
+Guideline
+Playlist Push
+ElecTrip
+Vital Farms
+Makepath
+VML
+Circus Street
+8fig
+Sync1 Systems
+OneSeventeen Media
+Mighty Citizen
+ionicpartners
+Workweek
+Nikk Nguyen Photography
+OutBox
+Ghost Machine VR Studio
+Leadwerks Software
+Instana
+
+
 

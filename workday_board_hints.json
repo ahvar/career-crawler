@@ -1,0 +1,22 @@
+{
+  "3m": {
+    "board_url": "https://3m.wd1.myworkdayjobs.com/en-US/Search",
+    "site_id": "Search",
+    "tenant": "3m"
+  },
+  "amgen": {
+    "board_url": "https://amgen.wd1.myworkdayjobs.com/Careers",
+    "site_id": "Careers",
+    "tenant": "amgen"
+  },
+  "red hat": {
+    "board_url": "https://redhat.wd5.myworkdayjobs.com/en-US/jobs/jobs",
+    "site_id": "jobs",
+    "tenant": "redhat"
+  },
+  "silicon labs": {
+    "board_url": "https://silabs.wd1.myworkdayjobs.com/en-US/SiliconlabsCareers/jobs",
+    "site_id": "SiliconlabsCareers",
+    "tenant": "silabs"
+  }
+}
