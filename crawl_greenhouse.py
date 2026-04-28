@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Greenhouse-only job crawler for a fixed list of target companies.
+ATS-aware job crawler for a fixed list of target companies.
 
 The crawler intentionally skips Gregslist and company-homepage discovery. It:
 - generates likely Greenhouse board slugs for each target company
 - probes the Greenhouse public jobs API until it finds a live board
-- fetches job detail payloads for the board's open jobs
+- falls back to configured Workday boards when appropriate
+- fetches job detail payloads for matched roles
 - filters jobs by target title families
-- writes a fresh matched-jobs snapshot to crawler_cache/matched_jobs.jsonl
+- writes a refreshed matched-jobs snapshot to crawler_cache/matched_jobs.jsonl
 """
 
 from __future__ import annotations
@@ -17,21 +18,22 @@ import asyncio
 import json
 import re
 import sys
-import time
-from dataclasses import dataclass, field
-from datetime import date
-from html.parser import HTMLParser
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterable
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
-from urllib.request import Request, urlopen
+
+from ats_config import load_greenhouse_slug_hints
+from ats_common import clean_display_text, company_cache_key, dedupe_preserve_order, log_step, normalize_job_id, normalize_match_text
+from ats_greenhouse import GreenhouseCrawler
+from ats_models import CompanyAssessment, CrawlRun, JobMatchResult, MatchedJob, TargetCompany
+from ats_workday import WorkdayCrawler, has_workday_board_hint
 
 
 DEFAULT_DELAY_SECONDS = 0.4
 DEFAULT_CONCURRENCY = 4
 DEFAULT_TIMEOUT_SECONDS = 20
-USER_AGENT = "greenhouse-job-crawler/0.1 (+personal job search automation)"
+DEFAULT_NON_GREENHOUSE_REVISIT_DAYS = 30
 VALID_JOB_TRACKING_STATUSES = ("pending_review", "applied", "revisit_later", "not_a_fit", "archived")
 
 CACHE_DIR = Path("crawler_cache")
@@ -41,9 +43,6 @@ NON_GREENHOUSE_COMPANIES_PATH = CACHE_DIR / "non_greenhouse_companies.txt"
 JOB_TRACKING_PATH = CACHE_DIR / "job_tracking.jsonl"
 COMPANY_REVISIT_PATH = CACHE_DIR / "company_revisit.jsonl"
 ARCHIVE_DIR = CACHE_DIR / "archive"
-
-GREENHOUSE_API_ROOT = "https://boards-api.greenhouse.io/v1/boards"
-GREENHOUSE_BOARD_ROOT = "https://boards.greenhouse.io"
 
 DEFAULT_TARGET_COMPANIES = (
     "Affirm",
@@ -136,147 +135,10 @@ DEFAULT_TARGET_COMPANIES = (
     "SmartBiz Loans",
 )
 
-# Optional seed candidates for names that are likely to need a non-trivial slug.
-COMPANY_SLUG_HINTS: dict[str, tuple[str, ...]] = {
-    "Affirm": ("affirm",),
-    "Striveworks": ("striveworks",),
-    "Instacart": ("instacart",),
-    "Elastic": ("elastic",),
-    "Doximity": ("doximity",),
-    "Reddit": ("reddit",),
-    "Surfside": ("surfside",),
-    "Glacis": ("glacis",),
-    "Stealth": ("stealth",),
-    "DeepSense": ("deepsense", "deep-sense"),
-    "Kovo": ("kovo",),
-    "Finch Care": ("finchcare", "finch-care"),
-    "MindCloud": ("mindcloud", "mind-cloud"),
-    "Spawn": ("spawn",),
-    "Helm Health": ("helmhealth", "helm-health"),
-}
-
-ROLE_FAMILY_TITLES = {
-    "software_engineering": (
-        "Software Engineer",
-        "Python Software Engineer",
-        "Python Software Developer",
-        "Senior Software Engineer",
-        "Senior Developer",
-        "Backend Developer",
-        "Backend Software Engineer",
-        "Programmer",
-        "Python Developer",
-        "Python Programmer",
-        "Applications Developer",
-        "Applications Engineer",
-        "Developer",
-        "Data Engineer",
-        "Senior Data Engineer",
-        "Bioinformatics Software Engineer",
-        "Software Engineer in Bioinformatics",
-        "Bioinformatics Scientist",
-        "Bioinformatics Engineer",
-        "Bioinformatician",
-        "AI Engineer",
-        "Product Engineer",
-        "DevOps Engineer",
-        "QA Engineer",
-        "Quality Assurance Engineer",
-        "Test Engineer",
-    ),
-    "solutions_engineering": (
-        "Solutions Engineer",
-        "Technical Account Manager",
-        "Customer Success Engineer",
-        "Customer Solutions Engineer",
-        "Solutions Architect",
-        "Implementation Specialist",
-        "Integration Specialist",
-        "Technical Trainer",
-        "Training Specialist",
-        "Customer Onboarding Specialist",
-        "Technical Coordinator",
-    ),
-    "technical_support_engineering": (
-        "Technical Support Engineer",
-        "Tier 2 Support",
-        "Tier 3 Support",
-        "Scientific Support Specialist",
-        "Technical Support Specialist",
-        "Product Support Specialist",
-        "Application Specialist",
-        "IT Help Desk Representative",
-    ),
-    "technical_writing": (
-        "Technical Writer",
-    ),
-}
-
-EXCLUDED_ROLE_HINTS = (
-    "account executive",
-    "sales representative",
-    "sales development representative",
-    "business development representative",
-    "revenue operations",
-    "field sales",
-)
-
-AUSTIN_LOCATION_PATTERN = re.compile(r"\baustin(?:\s*,)?\s*(?:tx|texas)\b", re.IGNORECASE)
-REMOTE_LOCATION_PATTERN = re.compile(r"\b(remote|distributed|work from home|home based)\b", re.IGNORECASE)
-US_LOCATION_PATTERN = re.compile(r"\b(?:united states|u\.?\s*s\.?\s*a?\.?)\b", re.IGNORECASE)
-
-
-@dataclass(frozen=True)
-class TargetCompany:
-    name: str
-    slug_candidates: tuple[str, ...] = ()
-
-
-@dataclass
-class MatchedJob:
-    company_name: str
-    company_slug: str
-    careers_url: str
-    greenhouse_job_id: int
-    job_title: str
-    job_url: str
-    job_location: str
-    matched_keywords: list[str]
-    matched_role_families: list[str]
-    found_date: str
-    job_description: str
-
-
-@dataclass
-class CompanyAssessment:
-    name: str
-    attempted_slugs: list[str]
-    resolved_slug: str | None
-    board_url: str | None
-    status: str
-    jobs_seen: int = 0
-    matched_jobs: list[MatchedJob] = field(default_factory=list)
-
-
-@dataclass
-class CrawlRun:
-    assessments: list[CompanyAssessment]
-    matched_jobs: list[MatchedJob]
-
-
-@dataclass(frozen=True)
-class JobMatchResult:
-    matched_job: MatchedJob | None
-    title_matched: bool = False
-    location_matched: bool = False
-
+GREENHOUSE_SLUG_HINTS = load_greenhouse_slug_hints(normalize_text=clean_display_text)
 
 class CrawlError(RuntimeError):
     """Raised when crawling cannot proceed safely."""
-
-
-def log_step(message: str) -> None:
-    print(f"[crawler] {message}", file=sys.stderr, flush=True)
 
 
 def ensure_cache_dir() -> None:
@@ -323,6 +185,27 @@ def save_matched_jobs(jobs: Iterable[MatchedJob]) -> int:
     return len(serialized_lines)
 
 
+def merge_matched_jobs_snapshot(
+    existing_jobs: Iterable[MatchedJob],
+    refreshed_jobs: Iterable[MatchedJob],
+    refreshed_company_keys: set[str],
+) -> list[MatchedJob]:
+    merged_jobs: list[MatchedJob] = []
+    refreshed_jobs_by_key = {
+        matched_job_key(job.company_slug, job.greenhouse_job_id): job
+        for job in refreshed_jobs
+    }
+
+    for job in existing_jobs:
+        if company_cache_key(job.company_name) in refreshed_company_keys:
+            continue
+        merged_jobs.append(job)
+
+    merged_jobs.extend(refreshed_jobs_by_key.values())
+    merged_jobs.sort(key=lambda job: (job.company_name.casefold(), job.job_title.casefold(), job.greenhouse_job_id))
+    return merged_jobs
+
+
 def count_jsonl_rows(path: Path) -> int:
     if not path.exists():
         return 0
@@ -351,106 +234,8 @@ def count_text_rows(path: Path) -> int:
     return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
 
 
-def dedupe_preserve_order(values: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for value in values:
-        if value not in seen:
-            seen.add(value)
-            ordered.append(value)
-    return ordered
-
-
-def normalize_match_text(text: str) -> str:
-    lowered = text.lower()
-    lowered = re.sub(r"[_/|]+", " ", lowered)
-    lowered = re.sub(r"[^a-z0-9+&.-]+", " ", lowered)
-    return " ".join(lowered.split())
-
-
-def clean_display_text(text: str) -> str:
-    return " ".join(text.replace("\xa0", " ").split())
-
-
 def company_cache_key(name: str) -> str:
     return normalize_match_text(name)
-
-
-TARGET_TITLES = tuple(
-    dict.fromkeys(title for titles in ROLE_FAMILY_TITLES.values() for title in titles)
-)
-
-
-def compile_title_pattern(title: str) -> re.Pattern[str]:
-    normalized = normalize_match_text(title)
-    escaped_tokens = [re.escape(token) for token in normalized.split()]
-    pattern = r"\b" + r"\s+".join(escaped_tokens) + r"\b"
-    return re.compile(pattern, re.IGNORECASE)
-
-
-TITLE_PATTERNS = {title: compile_title_pattern(title) for title in TARGET_TITLES}
-ROLE_FAMILY_TITLE_PATTERNS = {
-    family: {title: compile_title_pattern(title) for title in titles}
-    for family, titles in ROLE_FAMILY_TITLES.items()
-}
-
-
-def infer_title_matches(text: str) -> tuple[list[str], list[str]]:
-    normalized = normalize_match_text(text)
-    if not normalized:
-        return [], []
-    if any(excluded in normalized for excluded in EXCLUDED_ROLE_HINTS):
-        return [], []
-
-    matched_keywords: list[str] = []
-    matched_role_families: list[str] = []
-    for family, patterns in ROLE_FAMILY_TITLE_PATTERNS.items():
-        family_matches = [title.lower() for title, pattern in patterns.items() if pattern.search(normalized)]
-        if family_matches:
-            matched_role_families.append(family)
-            matched_keywords.extend(family_matches)
-
-    return dedupe_preserve_order(matched_keywords), dedupe_preserve_order(matched_role_families)
-
-
-class AsyncRateLimiter:
-    """Allow only one outbound request per configured interval."""
-
-    def __init__(self, min_delay_seconds: float) -> None:
-        self.min_delay_seconds = min_delay_seconds
-        self._lock = asyncio.Lock()
-        self._last_request_at = 0.0
-
-    async def wait(self) -> None:
-        async with self._lock:
-            now = time.monotonic()
-            remaining = self.min_delay_seconds - (now - self._last_request_at)
-            if remaining > 0:
-                await asyncio.sleep(remaining)
-            self._last_request_at = time.monotonic()
-
-
-class HTMLTextExtractor(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self._parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        text = clean_display_text(data)
-        if text:
-            self._parts.append(text)
-
-    @property
-    def text(self) -> str:
-        return " ".join(self._parts)
-
-
-def html_to_text(html: str | None) -> str:
-    if not html:
-        return ""
-    parser = HTMLTextExtractor()
-    parser.feed(html)
-    return parser.text
 
 
 def build_slug_candidates(company_name: str) -> list[str]:
@@ -458,7 +243,7 @@ def build_slug_candidates(company_name: str) -> list[str]:
     if not tokens:
         return []
 
-    hinted = list(COMPANY_SLUG_HINTS.get(company_name, ()))
+    hinted = list(GREENHOUSE_SLUG_HINTS.get(company_name, ()))
     generated = [
         "".join(tokens),
         "-".join(tokens),
@@ -529,7 +314,7 @@ def save_jsonl_records(path: Path, records: Iterable[dict]) -> int:
     return len(serialized_lines)
 
 
-def matched_job_key(company_slug: str, greenhouse_job_id: int) -> tuple[str, int]:
+def matched_job_key(company_slug: str, greenhouse_job_id: str) -> tuple[str, str]:
     return company_slug, greenhouse_job_id
 
 
@@ -537,8 +322,8 @@ def load_matched_jobs_snapshot() -> list[MatchedJob]:
     jobs: list[MatchedJob] = []
     for record in load_jsonl_records(MATCHED_JOBS_PATH):
         company_slug = clean_display_text(str(record.get("company_slug") or ""))
-        job_id = record.get("greenhouse_job_id")
-        if not company_slug or not isinstance(job_id, int):
+        job_id = normalize_job_id(record.get("greenhouse_job_id"))
+        if not company_slug or not job_id:
             continue
         jobs.append(
             MatchedJob(
@@ -560,8 +345,8 @@ def load_matched_jobs_snapshot() -> list[MatchedJob]:
 
 def normalize_job_tracking_record(record: dict) -> dict | None:
     company_slug = clean_display_text(str(record.get("company_slug") or ""))
-    greenhouse_job_id = record.get("greenhouse_job_id")
-    if not company_slug or not isinstance(greenhouse_job_id, int):
+    greenhouse_job_id = normalize_job_id(record.get("greenhouse_job_id"))
+    if not company_slug or not greenhouse_job_id:
         return None
     return {
         "company_slug": company_slug,
@@ -576,7 +361,7 @@ def normalize_job_tracking_record(record: dict) -> dict | None:
     }
 
 
-def load_job_tracking_records() -> dict[tuple[str, int], dict]:
+def load_job_tracking_records() -> dict[tuple[str, str], dict]:
     ensure_tracking_files()
     records: dict[tuple[str, int], dict] = {}
     for record in load_jsonl_records(JOB_TRACKING_PATH):
@@ -587,7 +372,7 @@ def load_job_tracking_records() -> dict[tuple[str, int], dict]:
     return records
 
 
-def save_job_tracking_records(records: dict[tuple[str, int], dict]) -> int:
+def save_job_tracking_records(records: dict[tuple[str, str], dict]) -> int:
     serialized = [records[key] for key in sorted(records, key=lambda item: (item[0], item[1]))]
     return save_jsonl_records(JOB_TRACKING_PATH, serialized)
 
@@ -619,6 +404,14 @@ def load_company_revisit_records() -> dict[str, dict]:
     return records
 
 
+def save_company_revisit_records(records: dict[str, dict]) -> int:
+    serialized = [
+        records[key]
+        for key in sorted(records, key=lambda item: records[item].get("company_name", "").casefold())
+    ]
+    return save_jsonl_records(COMPANY_REVISIT_PATH, serialized)
+
+
 def parse_iso_date(value: str) -> date | None:
     if not value:
         return None
@@ -628,7 +421,55 @@ def parse_iso_date(value: str) -> date | None:
         return None
 
 
-def get_matched_job_snapshot_record(company_slug: str, greenhouse_job_id: int) -> MatchedJob | None:
+def build_non_greenhouse_revisit_record(company_name: str, last_checked: str, next_revisit: str) -> dict:
+    return {
+        "company_slug": company_cache_key(company_name),
+        "company_name": company_name,
+        "board_type": "ats_research",
+        "last_checked": last_checked,
+        "next_revisit": next_revisit,
+        "reason": "Greenhouse board not found; investigate alternate ATS/job board.",
+        "notes": "Check likely systems such as Workday, Lever, Ashby, SmartRecruiters, and direct company-hosted boards.",
+    }
+
+
+def sync_non_greenhouse_company_revisits(
+    *,
+    search_cache: dict[str, dict] | None = None,
+    non_greenhouse_cache: dict[str, str] | None = None,
+    today_iso: str | None = None,
+) -> tuple[int, int]:
+    records = load_company_revisit_records()
+    search_records = search_cache if search_cache is not None else load_company_search_cache()
+    non_greenhouse_companies = (
+        non_greenhouse_cache if non_greenhouse_cache is not None else load_non_greenhouse_companies()
+    )
+    fallback_date = today_iso or date.today().isoformat()
+    created = 0
+    updated = 0
+
+    for company_key, company_name in non_greenhouse_companies.items():
+        existing = records.get(company_key)
+        if existing is not None:
+            continue
+
+        search_record = search_records.get(company_key, {})
+        last_checked = clean_display_text(str(search_record.get("last_scraped") or "")) or fallback_date
+        parsed_last_checked = parse_iso_date(last_checked) or parse_iso_date(fallback_date) or date.today()
+        next_revisit = (parsed_last_checked + timedelta(days=DEFAULT_NON_GREENHOUSE_REVISIT_DAYS)).isoformat()
+        records[company_key] = build_non_greenhouse_revisit_record(
+            company_name=company_name,
+            last_checked=last_checked,
+            next_revisit=next_revisit,
+        )
+        created += 1
+
+    if created or updated:
+        save_company_revisit_records(records)
+    return created, updated
+
+
+def get_matched_job_snapshot_record(company_slug: str, greenhouse_job_id: str) -> MatchedJob | None:
     for job in load_matched_jobs_snapshot():
         if matched_job_key(job.company_slug, job.greenhouse_job_id) == (company_slug, greenhouse_job_id):
             return job
@@ -638,7 +479,7 @@ def get_matched_job_snapshot_record(company_slug: str, greenhouse_job_id: int) -
 def upsert_job_tracking_record(
     *,
     company_slug: str,
-    greenhouse_job_id: int,
+    greenhouse_job_id: str,
     status: str,
     review_date: str | None,
     application_date: str | None,
@@ -650,7 +491,7 @@ def upsert_job_tracking_record(
         raise CrawlError(f"Unsupported job status: {status}")
 
     records = load_job_tracking_records()
-    key = matched_job_key(company_slug, greenhouse_job_id)
+    key = matched_job_key(company_slug, normalize_job_id(greenhouse_job_id))
     existing = records.get(key)
     snapshot_job = get_matched_job_snapshot_record(company_slug, greenhouse_job_id)
     if existing is None and snapshot_job is None:
@@ -661,7 +502,7 @@ def upsert_job_tracking_record(
     today_iso = date.today().isoformat()
     base_record = existing or {
         "company_slug": company_slug,
-        "greenhouse_job_id": greenhouse_job_id,
+        "greenhouse_job_id": normalize_job_id(greenhouse_job_id),
         "job_url": snapshot_job.job_url if snapshot_job is not None else "",
         "status": "pending_review",
         "review_date": "",
@@ -814,10 +655,6 @@ def format_tracking_report() -> str:
 def load_company_search_cache() -> dict[str, dict]:
     records_by_company: dict[str, dict] = {}
     for record in load_jsonl_records(SEARCHED_COMPANIES_PATH):
-        source = clean_display_text(str(record.get("source") or ""))
-        resolved_slug = clean_display_text(str(record.get("resolved_slug") or ""))
-        if source != "greenhouse" and not resolved_slug:
-            continue
         company_name = clean_display_text(str(record.get("company_name") or ""))
         if not company_name:
             continue
@@ -862,6 +699,7 @@ def save_non_greenhouse_companies(companies_by_key: dict[str, str]) -> int:
 def build_cached_assessment(company_name: str, record: dict, status: str) -> CompanyAssessment:
     resolved_slug = clean_display_text(str(record.get("resolved_slug") or ""))
     board_url = clean_display_text(str(record.get("board_url") or ""))
+    source = clean_display_text(str(record.get("source") or "greenhouse")) or "greenhouse"
     jobs_seen = record.get("jobs_seen")
     matched_job_count = record.get("matched_job_count")
     matched_jobs = [None] * matched_job_count if isinstance(matched_job_count, int) and matched_job_count > 0 else []
@@ -871,20 +709,9 @@ def build_cached_assessment(company_name: str, record: dict, status: str) -> Com
         resolved_slug=resolved_slug or None,
         board_url=board_url or None,
         status=status,
+        source=source,
         jobs_seen=jobs_seen if isinstance(jobs_seen, int) else 0,
         matched_jobs=matched_jobs,
-    )
-
-
-def is_target_location(location_name: str) -> bool:
-    normalized_location = clean_display_text(location_name)
-    if not normalized_location:
-        return False
-    if AUSTIN_LOCATION_PATTERN.search(normalized_location):
-        return True
-    return bool(
-        REMOTE_LOCATION_PATTERN.search(normalized_location)
-        and US_LOCATION_PATTERN.search(normalized_location)
     )
 
 
@@ -897,191 +724,8 @@ def build_search_record(assessment: CompanyAssessment, today_iso: str) -> dict:
         "jobs_seen": assessment.jobs_seen,
         "matched_job_count": len(assessment.matched_jobs),
         "status": assessment.status,
-        "source": "greenhouse",
+        "source": assessment.source,
     }
-
-
-def greenhouse_jobs_url(slug: str) -> str:
-    return f"{GREENHOUSE_API_ROOT}/{quote(slug, safe='')}/jobs"
-
-
-def greenhouse_job_detail_url(slug: str, job_id: int) -> str:
-    return f"{GREENHOUSE_API_ROOT}/{quote(slug, safe='')}/jobs/{job_id}"
-
-
-def greenhouse_board_url(slug: str) -> str:
-    return f"{GREENHOUSE_BOARD_ROOT}/{quote(slug, safe='')}"
-
-
-class GreenhouseCrawler:
-    def __init__(self, *, delay_seconds: float, concurrency: int, timeout_seconds: int) -> None:
-        self.rate_limiter = AsyncRateLimiter(delay_seconds)
-        self.semaphore = asyncio.Semaphore(concurrency)
-        self.timeout_seconds = timeout_seconds
-        self.today = date.today()
-
-    async def crawl(self, companies: Iterable[TargetCompany]) -> CrawlRun:
-        company_list = list(companies)
-        log_step(f"Starting Greenhouse crawl for {len(company_list)} target companies")
-        tasks = [self._crawl_company(company) for company in company_list]
-        assessments = await asyncio.gather(*tasks)
-        matched_jobs = [job for assessment in assessments for job in assessment.matched_jobs]
-        written = save_matched_jobs(matched_jobs)
-        log_step(f"Wrote {written} matched jobs to {MATCHED_JOBS_PATH}")
-        return CrawlRun(assessments=assessments, matched_jobs=matched_jobs)
-
-    async def _crawl_company(self, company: TargetCompany) -> CompanyAssessment:
-        attempted_slugs = list(company.slug_candidates) or build_slug_candidates(company.name)
-        if not attempted_slugs:
-            return CompanyAssessment(
-                name=company.name,
-                attempted_slugs=[],
-                resolved_slug=None,
-                board_url=None,
-                status="No slug candidates",
-            )
-
-        log_step(f"{company.name}: trying Greenhouse slugs {', '.join(attempted_slugs)}")
-        saw_empty_board = False
-        for slug in attempted_slugs:
-            try:
-                jobs_payload = await self._fetch_json(greenhouse_jobs_url(slug))
-            except HTTPError as exc:
-                if exc.code == 404:
-                    log_step(f"{company.name}: slug {slug} returned 404")
-                    continue
-                return CompanyAssessment(
-                    name=company.name,
-                    attempted_slugs=attempted_slugs,
-                    resolved_slug=slug,
-                    board_url=greenhouse_board_url(slug),
-                    status=f"HTTP {exc.code}",
-                )
-            except (URLError, TimeoutError) as exc:
-                return CompanyAssessment(
-                    name=company.name,
-                    attempted_slugs=attempted_slugs,
-                    resolved_slug=slug,
-                    board_url=greenhouse_board_url(slug),
-                    status=f"Network error: {exc}",
-                )
-
-            job_summaries = jobs_payload.get("jobs") or []
-            if not job_summaries:
-                saw_empty_board = True
-                log_step(f"{company.name}: slug {slug} has no open jobs")
-                continue
-
-            log_step(f"{company.name}: resolved board {slug} with {len(job_summaries)} open jobs")
-            detailed_jobs = await self._fetch_job_details(company_name=company.name, slug=slug, jobs=job_summaries)
-            matched_jobs = [result.matched_job for result in detailed_jobs if result.matched_job is not None]
-            title_matches = any(result.title_matched for result in detailed_jobs)
-            location_matches = any(result.location_matched for result in detailed_jobs)
-            if matched_jobs:
-                status = "Matched jobs found"
-            elif title_matches and not location_matches:
-                status = "No jobs in Austin/US-remote"
-            else:
-                status = "No matching job titles"
-            return CompanyAssessment(
-                name=company.name,
-                attempted_slugs=attempted_slugs,
-                resolved_slug=slug,
-                board_url=greenhouse_board_url(slug),
-                status=status,
-                jobs_seen=len(job_summaries),
-                matched_jobs=matched_jobs,
-            )
-
-        final_status = "No open jobs" if saw_empty_board else "Greenhouse board not found"
-        return CompanyAssessment(
-            name=company.name,
-            attempted_slugs=attempted_slugs,
-            resolved_slug=None,
-            board_url=None,
-            status=final_status,
-        )
-
-    async def _fetch_job_details(
-        self,
-        *,
-        company_name: str,
-        slug: str,
-        jobs: list[dict],
-    ) -> list[JobMatchResult]:
-        tasks = [
-            self._fetch_and_match_job_detail(company_name=company_name, slug=slug, job_summary=job_summary)
-            for job_summary in jobs
-        ]
-        return await asyncio.gather(*tasks)
-
-    async def _fetch_and_match_job_detail(
-        self,
-        *,
-        company_name: str,
-        slug: str,
-        job_summary: dict,
-    ) -> JobMatchResult:
-        job_id = job_summary.get("id")
-        if not isinstance(job_id, int):
-            return JobMatchResult(matched_job=None)
-
-        title = clean_display_text(str(job_summary.get("title") or ""))
-        matched_keywords, matched_role_families = infer_title_matches(title)
-        if not matched_keywords:
-            return JobMatchResult(matched_job=None)
-
-        try:
-            detail_payload = await self._fetch_json(greenhouse_job_detail_url(slug, job_id))
-        except (HTTPError, URLError, TimeoutError) as exc:
-            log_step(f"{company_name}: failed to fetch detail for job {job_id}: {exc}")
-            return JobMatchResult(matched_job=None, title_matched=True)
-
-        location = job_summary.get("location") or detail_payload.get("location") or {}
-        location_name = clean_display_text(str(location.get("name") or ""))
-        if not is_target_location(location_name):
-            return JobMatchResult(matched_job=None, title_matched=True)
-        job_description = html_to_text(str(detail_payload.get("content") or ""))
-        job_url = str(detail_payload.get("absolute_url") or job_summary.get("absolute_url") or greenhouse_board_url(slug))
-        board_url = greenhouse_board_url(slug)
-
-        return JobMatchResult(
-            matched_job=MatchedJob(
-                company_name=company_name,
-                company_slug=slug,
-                careers_url=board_url,
-                greenhouse_job_id=job_id,
-                job_title=title or "Unknown Role",
-                job_url=job_url,
-                job_location=location_name,
-                matched_keywords=matched_keywords,
-                matched_role_families=matched_role_families,
-                found_date=self.today.isoformat(),
-                job_description=job_description,
-            ),
-            title_matched=True,
-            location_matched=True,
-        )
-
-    async def _fetch_json(self, url: str) -> dict:
-        async with self.semaphore:
-            await self.rate_limiter.wait()
-            return await asyncio.to_thread(self._fetch_json_blocking, url)
-
-    def _fetch_json_blocking(self, url: str) -> dict:
-        request = Request(
-            url,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "application/json",
-            },
-        )
-        with urlopen(request, timeout=self.timeout_seconds) as response:
-            status = getattr(response, "status", 200)
-            if status != 200:
-                raise HTTPError(url, status, f"Unexpected status {status}", hdrs=None, fp=None)
-            charset = response.headers.get_content_charset() or "utf-8"
-            return json.loads(response.read().decode(charset, errors="replace"))
 
 
 def format_results(rows: Iterable[CompanyAssessment]) -> str:
@@ -1152,7 +796,7 @@ def format_matched_job_urls(jobs: Iterable[MatchedJob]) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Greenhouse-only job crawler for target companies.")
+    parser = argparse.ArgumentParser(description="ATS-aware job crawler for target companies.")
     parser.add_argument(
         "--company",
         action="append",
@@ -1199,6 +843,11 @@ def parse_args() -> argparse.Namespace:
         help="Print a report that joins matched jobs with job/company tracking overlays, then exit.",
     )
     parser.add_argument(
+        "--sync-non-greenhouse-revisits",
+        action="store_true",
+        help="Backfill non-Greenhouse companies into crawler_cache/company_revisit.jsonl as ATS research follow-ups.",
+    )
+    parser.add_argument(
         "--set-job-status",
         choices=VALID_JOB_TRACKING_STATUSES,
         help="Upsert a job-level tracking record in crawler_cache/job_tracking.jsonl.",
@@ -1209,8 +858,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--job-id",
-        type=int,
-        help="Greenhouse job id for a job tracking update.",
+        help="Job id for a job tracking update. Supports existing Greenhouse numeric ids and Workday ids.",
     )
     parser.add_argument(
         "--review-date",
@@ -1242,7 +890,7 @@ def parse_args() -> argparse.Namespace:
         parser.error("--concurrency must be at least 1.")
     if args.timeout < 1:
         parser.error("--timeout must be at least 1.")
-    if args.set_job_status and (not args.company_slug or args.job_id is None):
+    if args.set_job_status and (not args.company_slug or not clean_display_text(str(args.job_id or ""))):
         parser.error("--set-job-status requires both --company-slug and --job-id.")
     if not args.set_job_status and any(
         value is not None
@@ -1269,6 +917,7 @@ async def run(
     show_cache_stats: bool,
     show_company_list: bool,
     show_tracking_report: bool,
+    sync_non_greenhouse_revisits: bool,
     set_job_status: str | None,
     company_slug: str | None,
     job_id: int | None,
@@ -1280,6 +929,17 @@ async def run(
 ) -> int:
     ensure_cache_dir()
     ensure_tracking_files()
+
+    if sync_non_greenhouse_revisits:
+        created, updated = sync_non_greenhouse_company_revisits()
+        log_step(
+            f"Synced {created + updated} non-Greenhouse company revisit records into {COMPANY_REVISIT_PATH}"
+        )
+
+    if sync_non_greenhouse_revisits and not any(
+        (show_company_list, show_cache_stats, show_tracking_report, set_job_status is not None, company_names)
+    ):
+        return 0
 
     if show_company_list:
         for company_name in DEFAULT_TARGET_COMPANIES:
@@ -1297,7 +957,7 @@ async def run(
     if set_job_status is not None:
         updated = upsert_job_tracking_record(
             company_slug=clean_display_text(company_slug or ""),
-            greenhouse_job_id=job_id or 0,
+            greenhouse_job_id=normalize_job_id(job_id),
             status=set_job_status,
             review_date=review_date,
             application_date=application_date,
@@ -1359,9 +1019,42 @@ async def run(
         timeout_seconds=timeout,
     )
     crawl_run = await crawler.crawl(targets)
-    today_iso = crawler.today.isoformat()
 
+    workday_targets = [
+        target for target, assessment in zip(targets, crawl_run.assessments)
+        if has_workday_board_hint(target.name) and assessment.status != "Matched jobs found"
+    ]
+    replacement_assessments = {
+        company_cache_key(assessment.name): assessment
+        for assessment in crawl_run.assessments
+    }
+    replacement_jobs = {company_cache_key(target.name): [] for target in targets}
     for assessment in crawl_run.assessments:
+        replacement_jobs[company_cache_key(assessment.name)] = list(assessment.matched_jobs)
+
+    if workday_targets:
+        workday_crawler = WorkdayCrawler(
+            delay_seconds=delay,
+            concurrency=concurrency,
+            timeout_seconds=timeout,
+        )
+        workday_run = await workday_crawler.crawl(workday_targets)
+        for assessment in workday_run.assessments:
+            company_key = company_cache_key(assessment.name)
+            replacement_assessments[company_key] = assessment
+            replacement_jobs[company_key] = list(assessment.matched_jobs)
+        today_iso = workday_crawler.today.isoformat()
+    else:
+        today_iso = crawler.today.isoformat()
+
+    final_assessments = [replacement_assessments[company_cache_key(target.name)] for target in targets]
+    refreshed_company_keys = {company_cache_key(company.name) for company in targets}
+    refreshed_jobs = [job for target in targets for job in replacement_jobs[company_cache_key(target.name)]]
+    merged_jobs = merge_matched_jobs_snapshot(load_matched_jobs_snapshot(), refreshed_jobs, refreshed_company_keys)
+    written = save_matched_jobs(merged_jobs)
+    log_step(f"Wrote {written} matched jobs to {MATCHED_JOBS_PATH}")
+
+    for assessment in final_assessments:
         search_cache[company_cache_key(assessment.name)] = build_search_record(assessment, today_iso=today_iso)
         if assessment.status == "Greenhouse board not found":
             non_greenhouse_cache[company_cache_key(assessment.name)] = assessment.name
@@ -1370,13 +1063,19 @@ async def run(
 
     written_search_records = save_company_search_cache(search_cache)
     written_non_greenhouse = save_non_greenhouse_companies(non_greenhouse_cache)
+    synced_company_revisits, _ = sync_non_greenhouse_company_revisits(
+        search_cache=search_cache,
+        non_greenhouse_cache=non_greenhouse_cache,
+        today_iso=today_iso,
+    )
     log_step(f"Updated {written_search_records} search-cache records in {SEARCHED_COMPANIES_PATH}")
     log_step(f"Recorded {written_non_greenhouse} non-Greenhouse companies in {NON_GREENHOUSE_COMPANIES_PATH}")
+    log_step(f"Tracked {synced_company_revisits} new ATS research follow-ups in {COMPANY_REVISIT_PATH}")
 
-    assessments = skipped_assessments + crawl_run.assessments
+    assessments = skipped_assessments + final_assessments
     output = format_results(assessments)
-    matched_jobs_section = format_matched_jobs(crawl_run.matched_jobs)
-    matched_urls_section = format_matched_job_urls(crawl_run.matched_jobs)
+    matched_jobs_section = format_matched_jobs(refreshed_jobs)
+    matched_urls_section = format_matched_job_urls(refreshed_jobs)
     print(output + matched_jobs_section + matched_urls_section)
     return 0
 
@@ -1394,6 +1093,7 @@ def main() -> int:
                 show_cache_stats=args.show_cache_stats,
                 show_company_list=args.show_company_list,
                 show_tracking_report=args.show_tracking_report,
+                sync_non_greenhouse_revisits=args.sync_non_greenhouse_revisits,
                 set_job_status=args.set_job_status,
                 company_slug=args.company_slug,
                 job_id=args.job_id,

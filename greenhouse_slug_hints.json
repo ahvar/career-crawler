@@ -1,0 +1,17 @@
+{
+  "Affirm": ["affirm"],
+  "DeepSense": ["deepsense", "deep-sense"],
+  "Doximity": ["doximity"],
+  "Elastic": ["elastic"],
+  "Finch Care": ["finchcare", "finch-care"],
+  "Glacis": ["glacis"],
+  "Helm Health": ["helmhealth", "helm-health"],
+  "Instacart": ["instacart"],
+  "Kovo": ["kovo"],
+  "MindCloud": ["mindcloud", "mind-cloud"],
+  "Reddit": ["reddit"],
+  "Spawn": ["spawn"],
+  "Stealth": ["stealth"],
+  "Striveworks": ["striveworks"],
+  "Surfside": ["surfside"]
+}

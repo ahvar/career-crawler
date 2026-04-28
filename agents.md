@@ -4,7 +4,7 @@
 
 This file provides current task instructions for AI agents working on the job application automation system.
 
-## Agent Handoff Status (2026-04-22)
+## Agent Handoff Status (2026-04-24)
 
 ### Completed In This Repo Since The Original Plan
 
@@ -18,14 +18,24 @@ This file provides current task instructions for AI agents working on the job ap
 - `crawl_greenhouse.py` now supports workflow overlays via `crawler_cache/job_tracking.jsonl` and `crawler_cache/company_revisit.jsonl`.
 - `crawl_greenhouse.py --show-tracking-report` now joins the matched-job snapshot with overlay state.
 - `crawl_greenhouse.py --set-job-status ...` now lets agents or users mark jobs from the CLI instead of editing JSONL directly.
+- `crawl_greenhouse.py --sync-non-greenhouse-revisits` now backfills companies from `crawler_cache/non_greenhouse_companies.txt` into `crawler_cache/company_revisit.jsonl` as ATS research follow-ups, and regular crawls now auto-sync newly discovered non-Greenhouse companies into that overlay.
 - `crawl_greenhouse.py` now separates title matching into explicit role families for software engineering, solutions engineering, technical support engineering, and technical writing.
 - `crawl_greenhouse.py` now persists `matched_role_families` on future matched-job snapshots.
+- `crawl_greenhouse.py` partial runs now merge refreshed-company results into the existing matched-job snapshot instead of overwriting `crawler_cache/matched_jobs.jsonl` with only the latest subset.
+- The crawler now has a first production Workday slice: configured tenants can be crawled through the Workday listings API, matched roles fetch public detail HTML, and descriptions are extracted from JSON-LD with Open Graph fallback.
+- ATS-specific crawler code is now split into `ats_common.py`, `ats_config.py`, `ats_greenhouse.py`, `ats_models.py`, and `ats_workday.py`.
+- Greenhouse slug hints and Workday tenant hints now live in `greenhouse_slug_hints.json` and `workday_board_hints.json` with a shared config-loading path.
+- The current validated Workday tenants are Red Hat, Silicon Labs, 3M, and Amgen.
 - `crawl_greenhouse.py` default target companies were expanded with the next batch of candidate companies from `plan.txt`, and the expanded crawl state has now been refreshed.
 - Current tracked state already includes the applied Affirm PMI role, the applied Instacart Logistics Foundation role, later-application Affirm roles, reviewed-not-a-fit jobs, and company revisit dates for Affirm and Instacart.
 - `scripts/generate_application_materials.py` now has an initial customer-facing technical-role generation path that uses the Plenful implementation-specialist templates in `application_materials/` for solutions/support/writing-style roles.
 - Initial adjacent-role validation ran successfully on Affirm `7666749003` (Senior Technical Account Manager), and the generated metadata resolved to `solutions_engineering` with the implementation-specialist resume and cover-letter templates.
 - Technical writing now has a separate template path using the writer examples under `application_materials/reference_examples/technical_writing/`.
 - The technical-writing resume path now lightly tailors competency headings to the job description while keeping the writer template bodies stable.
+- The Built In Austin page-8 company batch from `new_companies.txt` has now been searched against Greenhouse. New matched jobs were added for Natera (9) and Praetorian (1), while several additional boards resolved with no current Austin/US-remote title matches.
+- The Natera `5811034004` Genomics Data System DevOps Engineer-Temp role was selected as the only fit from the page-8 Natera/Praetorian batch, tailored documents were generated under `application_materials/generated/natera_5811034004/`, and the remaining new Natera/Praetorian matches were marked `not_a_fit` in `crawler_cache/job_tracking.jsonl`.
+- The Natera `5811034004` role was submitted on 2026-04-24 and is now tracked as `applied` in `crawler_cache/job_tracking.jsonl`.
+- The Built In Austin page-11 company batch from `new_companies.txt` was searched against Greenhouse on 2026-04-24. New matched jobs were added for Lightspeed Systems (4), and several additional boards resolved with no current matching titles.
 
 ### Current Working State
 
@@ -33,7 +43,9 @@ This file provides current task instructions for AI agents working on the job ap
 - Workflow state belongs in:
   - `crawler_cache/job_tracking.jsonl`
   - `crawler_cache/company_revisit.jsonl`
+- `crawler_cache/non_greenhouse_companies.txt` remains the canonical quick list of companies that did not resolve to Greenhouse, while `crawler_cache/company_revisit.jsonl` now carries the revisit schedule and ATS-research notes for following up on those companies.
 - `README.md` documents the current crawler/reporting and job-status CLI workflow.
+- `README.md` now documents the ATS-aware crawler structure, Workday fallback behavior, and the external hint config files.
 - The adjacent-role generation path currently uses:
   - `application_materials/reference_examples/customer_facing_technical/vargas_technical_implementation_specialist_resume.docx`
   - `application_materials/reference_examples/customer_facing_technical/vargas_technical_implementation_specialist_cover_letter.docx`
@@ -41,8 +53,15 @@ This file provides current task instructions for AI agents working on the job ap
 - Solutions/support roles still share the Plenful implementation-specialist template path, while `technical_writing` now uses:
   - `application_materials/reference_examples/technical_writing/vargas_technical_writer_resume_core_competencies.docx`
   - `application_materials/reference_examples/technical_writing/vargas_technical_writer_cover_letter_sprypoint.docx`
-- `crawler_cache/matched_jobs.jsonl` was refreshed on 2026-04-22 after the expanded company-seed update and now persists `matched_role_families` in the live snapshot.
-- The refreshed snapshot currently contains 96 matched jobs total: 92 `software_engineering` matches and 4 `solutions_engineering` matches (Affirm TAM `7666749003`, Huntress Technical Account Manager III `7621237003`, Airtable Senior Partner Solutions Architect `8461582002`, Airtable Senior Solutions Architect `8487502002`); there are still no live `technical_support_engineering` or `technical_writing` matches yet.
+- `crawler_cache/matched_jobs.jsonl` was refreshed again on 2026-04-24 after the `new_companies.txt` page-11 pass and now persists `matched_role_families` in the live snapshot.
+- The current snapshot contains 112 matched jobs total: 105 `software_engineering` matches, 6 `solutions_engineering` matches, and 1 `technical_support_engineering` match. New 2026-04-24 additions from the page-11 pass are Lightspeed Systems (4 matches): Customer Technical Support Specialist, Quality Assurance Engineer (User Acceptance Testing), Software Engineer (AI Native), and Solutions Engineer (Pre-Sales/Implementation). There are still no live `technical_writing` matches yet.
+- The 2026-04-23 page-8 pass resolved live Greenhouse boards for Care.com, Dialpad, EpisodeSix, Method, Natera, Praetorian, Shift Paradigm, SpaceX, Sustainment, Velocity Electronics, and Victory. Of those, only Natera and Praetorian produced current matches; Dialpad, EpisodeSix, and SpaceX had title-family hits but no Austin/US-remote matches.
+- The 2026-04-24 page-11 pass resolved live Greenhouse boards for CompuGroup Medical US, Encore Energeia, Hippo Insurance, Integra FEC, Lightspeed Systems, Sustainment, and Tecovas; `GOLF+` resolved a board with no open jobs. Of those page-11 boards, only Lightspeed Systems produced current matches.
+- The selected Natera target is `5811034004` (Genomics Data System DevOps Engineer-Temp), now tracked as `applied`, and the other new Natera/Praetorian additions from that pass remain tracked as `not_a_fit`.
+- `new_companies.txt` now holds the current page-11 batch that has already been crawled; future company-discovery work should resume from the next Built In Austin page after page 11 instead of rerunning this same list.
+- Current cache totals after the page-11 pass and non-Greenhouse revisit backfill are 184 searched companies, 127 known non-Greenhouse companies, 112 matched jobs, 57 tracked jobs, and 129 tracked company revisits. The current tracking report still shows 3 `applied`, 2 `pending_review`, 36 `not_a_fit`, 15 `revisit_later`, and 1 `archived`.
+- Resolved page-8 Natera/Praetorian batch notes are archived in `agents_archives/2026-04-24_page_8_natera_praetorian_resolution.md`.
+- The Workday implementation and config-extraction cleanup are archived in `agents_archives/2026-04-27_workday_config_and_module_extraction.md`.
 - The current report command is:
   - `./envs/bin/python crawl_greenhouse.py --show-tracking-report`
 - The current job-status update command is:
@@ -58,6 +77,9 @@ Use these commands first before making broader changes:
 
 # Inspect crawler/cache counts
 ./envs/bin/python crawl_greenhouse.py --show-cache-stats
+
+# Sync known non-Greenhouse companies into ATS research revisit tracking
+./envs/bin/python crawl_greenhouse.py --sync-non-greenhouse-revisits
 
 # Re-generate the current seed software-engineering example
 ./envs/bin/python scripts/generate_application_materials.py \
@@ -88,7 +110,7 @@ Use these commands first before making broader changes:
 - The adjacent-role slice is only partially implemented end to end; one customer-facing template path now exists, but it still needs broader validation across technical support and technical writing examples.
 - The Plenful technical implementation specialist materials are now wired in as the shared customer-facing path for solutions/support roles.
 - Technical writing now has a dedicated template path, but it still needs validation against a real matched technical-writing job because none are live in the current snapshot.
-- The expanded company discovery pass has started populating cache state for the next batch of companies from `plan.txt`; some newly found Greenhouse boards produced additional solutions matches, but no live support/writing matches yet.
+- The page-11 `new_companies.txt` batch has now been processed; future company-discovery work should resume from the next Built In Austin page after page 11.
 - The crawler role-family split is implemented and the current `crawler_cache/matched_jobs.jsonl` snapshot now includes `matched_role_families`, but only one adjacent-role example is currently present in live data.
 - No decision has been finalized to create a second fine-tuned model for adjacent roles; that evaluation is still pending.
 
@@ -98,9 +120,11 @@ Use these commands first before making broader changes:
 2. Treat the Plenful implementation-specialist template as the current shared base for solutions/support roles unless new examples show structural mismatch.
 3. Validate the new technical-writing template path against the first live `technical_writing` match that appears in the snapshot.
   When a live `technical_writing` match appears, run the full document-generation path against that job before changing the writer templates again.
-4. Review the newly discovered Airtable and Huntress solutions-role matches and decide whether either should be marked for later application or not-a-fit in the workflow overlays.
-5. Add a company-revisit CLI helper similar to `--set-job-status` so revisit dates and notes can also be maintained from the command line.
-6. Only recommend a second model if the adjacent-role generation path still requires heavy manual rewriting after prompt/template-based evaluation.
+4. Review the four new Lightspeed Systems matches from the 2026-04-24 page-11 pass and decide whether any should be marked `pending_review`, `revisit_later`, or `not_a_fit` in `crawler_cache/job_tracking.jsonl`.
+5. If one of the new Lightspeed matches is a fit, generate tailored materials for that role and update the overlay state through `crawl_greenhouse.py --set-job-status ...`.
+6. Revisit the existing Airtable and Huntress solutions-role matches if they still need a workflow decision after the Natera/Praetorian batch is closed.
+7. Review and prioritize the new ATS-research revisit backlog in `crawler_cache/company_revisit.jsonl`, especially companies likely to use Workday or other supported boards.
+8. Only recommend a second model if the adjacent-role generation path still requires heavy manual rewriting after prompt/template-based evaluation.
 
 ### Project Phases
 
@@ -125,7 +149,7 @@ Use these commands first before making broader changes:
 - `scripts/build_training_data.py` - Training data generation pipeline
 - `scripts/validate_training_data.py` - Training data validation script
 - `upload_training_data.py` - Upload helper configured for the application-writing dataset
-- `crawl_greenhouse.py` - Greenhouse-only crawler with title matching and job-detail fetching
+- `crawl_greenhouse.py` - ATS-aware crawler entrypoint with Greenhouse and Workday support
 - `test_workday_api.py` - Test script for Workday API job fetching
 - `workday_api.md` - Workday API documentation and request details
 - `crawler_questions.md` - Web scraping concepts: robots.txt, JavaScript, APIs
