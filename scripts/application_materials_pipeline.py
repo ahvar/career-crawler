@@ -182,6 +182,10 @@ def title_case_from_slug(slug: str) -> str:
 
 
 def fetch_job_details(url: str) -> JobDetails:
+    snapshot_job = snapshot_job_details_by_url(url)
+    if snapshot_job is not None:
+        return snapshot_job
+
     board, job_id, normalized_source_url = resolve_greenhouse_job(url)
     try:
         payload = fetch_json(greenhouse_job_detail_url(board, job_id))
@@ -224,6 +228,42 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
         if line:
             rows.append(json.loads(line))
     return rows
+
+
+def normalize_snapshot_url(url: str) -> str:
+    return url.strip().rstrip("/")
+
+
+def snapshot_job_details_by_url(source_url: str) -> JobDetails | None:
+    if not MATCHED_JOBS_PATH.exists():
+        return None
+
+    normalized_source_url = normalize_snapshot_url(source_url)
+    for row in load_jsonl(MATCHED_JOBS_PATH):
+        row_url = normalize_snapshot_url(str(row.get("job_url") or ""))
+        if row_url != normalized_source_url:
+            continue
+
+        company_slug = str(row.get("company_slug") or "")
+        company_name = clean_display_text(str(row.get("company_name") or title_case_from_slug(company_slug)))
+        title = clean_display_text(str(row.get("job_title") or "Untitled Role"))
+        location = clean_display_text(str(row.get("job_location") or ""))
+        description = html_to_text(str(row.get("job_description") or ""))
+        absolute_url = str(row.get("job_url") or source_url)
+
+        return JobDetails(
+            source_url=source_url,
+            normalized_source_url=absolute_url,
+            company_slug=company_slug,
+            company_name=company_name,
+            job_id=str(row.get("greenhouse_job_id") or ""),
+            title=title,
+            location=location,
+            description=description,
+            absolute_url=absolute_url,
+        )
+
+    return None
 
 
 def snapshot_job_details(board: str | None, job_id: int, source_url: str) -> JobDetails | None:

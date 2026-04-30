@@ -52,8 +52,19 @@ Available flags:
 - `--show-cache-stats`: print current matched-job and archive counts, then exit
 - `--show-company-list`: print the default target company list, then exit
 - `--show-tracking-report`: print a report that joins the matched-job snapshot with the job/company tracking overlay files, then exit
+- `--show-company-ats-report`: print a report that summarizes company ATS coverage and the current Workday research queue
+- `--show-intake-workday-report`: print a focused ATS report for the companies listed in `new_companies.txt`
 - `--sync-non-greenhouse-revisits`: backfill known non-Greenhouse companies into the company revisit overlay as ATS research follow-ups
+- `--set-company-workday-board`: record a validated Workday board in `workday_board_hints.json` and the company ATS registry
+- `--discover-workday-boards`: probe the current Workday discovery queue for valid Workday board patterns
+- `--apply-discovered-workday-boards`: persist confirmed Workday discovery results instead of running in dry-run mode
+- `--apply-workday-not-found-results`: persist clean Workday `not_found` discovery results so double-not-found companies move into `check_other_ats`
+- `--workday-discovery-limit`: maximum number of queued companies to probe for Workday boards
 - `--set-job-status`: upsert a job-level tracking record with one of `pending_review`, `applied`, `revisit_later`, `not_a_fit`, or `archived`
+- `--company-name`: canonical company name used with `--set-company-workday-board`
+- `--workday-tenant`: Workday tenant used with `--set-company-workday-board`
+- `--workday-site-id`: Workday site id used with `--set-company-workday-board`
+- `--workday-board-url`: Workday board URL used with `--set-company-workday-board`
 - `--company-slug`: company slug used with `--set-job-status`
 - `--job-id`: job id used with `--set-job-status`; this supports both Greenhouse ids and Workday ids in the shared snapshot format
 - `--review-date`: optional ISO review date used with `--set-job-status`
@@ -104,6 +115,7 @@ The crawler writes results into `crawler_cache/`:
 - `matched_jobs.jsonl`: the current matched-job snapshot across supported ATS sources
 - `careers_scraped.jsonl`: cached search results used to skip already-searched default companies
 - `non_greenhouse_companies.txt`: companies confirmed not to expose a Greenhouse board
+- `company_registry.jsonl`: canonical company ATS registry derived from crawl caches, hint files, and revisit overlays
 - `job_tracking.jsonl`: job-level workflow state overlay keyed by `company_slug` and `greenhouse_job_id`
 - `company_revisit.jsonl`: company-level revisit schedule overlay keyed by `company_slug`, including ATS research follow-ups for non-Greenhouse companies
 - `archive/matched_jobs_gregslist_2026-04-21.jsonl`: archived Gregslist output preserved before the refactor
@@ -155,12 +167,18 @@ The crawler also syncs newly discovered non-Greenhouse companies into `company_r
 
 ## Code Structure
 
-- `crawl_greenhouse.py`: CLI entrypoint, cache persistence, reporting, and top-level orchestration
-- `ats_common.py`: shared matching, normalization, HTML extraction, and logging helpers
-- `ats_config.py`: shared ATS config loading for Greenhouse and Workday hint files
-- `ats_greenhouse.py`: Greenhouse crawler implementation
-- `ats_workday.py`: Workday crawler implementation
-- `ats_models.py`: shared crawler dataclasses
+- `crawl_greenhouse.py`: CLI entrypoint and top-level orchestration
+- `ats/`: ATS package for crawler internals and shared helpers
+- `ats/common.py`: shared matching, normalization, HTML extraction, and logging helpers
+- `ats/config.py`: shared ATS config loading for Greenhouse and Workday hint files
+- `ats/greenhouse.py`: Greenhouse crawler implementation
+- `ats/workday.py`: Workday crawler implementation
+- `ats/models.py`: shared crawler dataclasses
+- `ats/registry.py`: company ATS registry construction and Workday queue selection
+- `ats/reporting.py`: ATS and crawl output report formatting
+- `ats/storage.py`: JSONL/text persistence helpers for crawler overlays and caches
+- `ats/tracking.py`: tracking report formatting
+- `ats/workday_discovery.py`: heuristic Workday board discovery
 
 You can inspect output counts without crawling:
 
@@ -172,6 +190,64 @@ You can also inspect the joined workflow state without crawling:
 
 ```bash
 ./envs/bin/python crawl_greenhouse.py --show-tracking-report
+```
+
+You can also inspect company ATS coverage and Workday research candidates without crawling:
+
+```bash
+./envs/bin/python crawl_greenhouse.py --show-company-ats-report
+```
+
+You can inspect the current `new_companies.txt` intake batch with a focused Workday-oriented report:
+
+```bash
+./envs/bin/python crawl_greenhouse.py --show-intake-workday-report
+```
+
+You can probe the current Workday discovery queue without changing hints or overlays:
+
+```bash
+./envs/bin/python crawl_greenhouse.py --discover-workday-boards --workday-discovery-limit 10
+```
+
+You can persist confirmed discovery outcomes when you want to update the tracker:
+
+```bash
+./envs/bin/python crawl_greenhouse.py \
+	--discover-workday-boards \
+	--apply-discovered-workday-boards \
+	--workday-discovery-limit 10
+```
+
+You can separately advance clean Workday `not_found` results into the `check_other_ats` backlog once you decide the heuristics are broad enough:
+
+```bash
+./envs/bin/python crawl_greenhouse.py \
+	--discover-workday-boards \
+	--apply-workday-not-found-results \
+	--workday-discovery-limit 10
+```
+
+You can also target specific queued companies:
+
+```bash
+./envs/bin/python crawl_greenhouse.py \
+	--discover-workday-boards \
+	--company "All Options" \
+	--company "BetterUp"
+```
+
+Explicit `--company` values also work for targeted validation outside the current `check_workday` queue, which is useful for testing legal-entity names or externally supplied ATS hints.
+
+You can promote a manually validated company into confirmed Workday tracking without editing JSON files directly:
+
+```bash
+./envs/bin/python crawl_greenhouse.py \
+	--set-company-workday-board \
+	--company-name "Company Name" \
+	--workday-tenant tenant \
+	--workday-site-id siteid \
+	--workday-board-url "https://tenant.wd1.myworkdayjobs.com/en-US/Site/jobs"
 ```
 
 You can update a tracked job from the CLI without editing JSONL directly:

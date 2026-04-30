@@ -4,6 +4,51 @@
     "site_id": "Search",
     "tenant": "3m"
   },
+  "Alcoa": {
+    "board_url": "https://alcoa.wd5.myworkdayjobs.com/en-US/Careers",
+    "site_id": "Careers",
+    "tenant": "alcoa"
+  },
+  "Analog Devices": {
+    "board_url": "https://analogdevices.wd1.myworkdayjobs.com/en-US/External",
+    "site_id": "External",
+    "tenant": "analogdevices"
+  },
+  "CDW": {
+    "board_url": "https://cdw.wd5.myworkdayjobs.com/en-US/careers",
+    "site_id": "careers",
+    "tenant": "cdw"
+  },
+  "Chevron": {
+    "board_url": "https://chevron.wd5.myworkdayjobs.com/en-US/jobs",
+    "site_id": "jobs",
+    "tenant": "chevron"
+  },
+  "CrowdStrike": {
+    "board_url": "https://crowdstrike.wd5.myworkdayjobs.com/en-US/CrowdStrikeCareers",
+    "site_id": "CrowdStrikeCareers",
+    "tenant": "crowdstrike"
+  },
+  "DuPont": {
+    "board_url": "https://dupont.wd5.myworkdayjobs.com/en-US/jobs",
+    "site_id": "jobs",
+    "tenant": "dupont"
+  },
+  "GEICO": {
+    "board_url": "https://geico.wd1.myworkdayjobs.com/en-US/External",
+    "site_id": "External",
+    "tenant": "geico"
+  },
+  "Red Hat": {
+    "board_url": "https://redhat.wd5.myworkdayjobs.com/en-US/jobs/jobs",
+    "site_id": "jobs",
+    "tenant": "redhat"
+  },
+  "Sprinklr": {
+    "board_url": "https://sprinklr.wd1.myworkdayjobs.com/en-US/careers",
+    "site_id": "careers",
+    "tenant": "sprinklr"
+  },
   "amgen": {
     "board_url": "https://amgen.wd1.myworkdayjobs.com/Careers",
     "site_id": "Careers",

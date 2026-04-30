@@ -1,0 +1,9 @@
+{
+  "AbbVie": {
+    "listing_mode": "attrax_html",
+    "search_results_url": "https://careers.abbvie.com/en/jobs?q=software&options=&page=1"
+  },
+  "Adobe": {
+    "search_results_url": "https://careers.adobe.com/us/en/search-results"
+  }
+}

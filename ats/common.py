@@ -6,7 +6,9 @@ import json
 import re
 import sys
 import time
+from functools import lru_cache
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Iterable
 
 
@@ -81,6 +83,27 @@ EXCLUDED_ROLE_HINTS = (
 AUSTIN_LOCATION_PATTERN = re.compile(r"\baustin(?:\s*,)?\s*(?:tx|texas)\b", re.IGNORECASE)
 REMOTE_LOCATION_PATTERN = re.compile(r"\b(remote|distributed|work from home|home based)\b", re.IGNORECASE)
 US_LOCATION_PATTERN = re.compile(r"\b(?:united states|u\.?\s*s\.?\s*a?\.?)\b", re.IGNORECASE)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+COMPANY_ALIASES_PATH = PROJECT_ROOT / "company_aliases.json"
+COMPANY_LEGAL_SUFFIXES = {
+    "co",
+    "company",
+    "corp",
+    "corporation",
+    "inc",
+    "incorporated",
+    "llc",
+    "lp",
+    "ltd",
+    "limited",
+    "na",
+    "plc",
+    "pty",
+    "sa",
+    "si",
+}
+
+COMPANY_DESCRIPTOR_SPLIT_PATTERN = re.compile(r"\s*[,;]\s*")
 
 
 def log_step(message: str) -> None:
@@ -108,8 +131,64 @@ def clean_display_text(text: str) -> str:
     return " ".join(text.replace("\xa0", " ").split())
 
 
+def merge_initialism_tokens(tokens: Iterable[str]) -> list[str]:
+    merged: list[str] = []
+    pending: list[str] = []
+    for token in tokens:
+        if len(token) == 1 and token.isalpha():
+            pending.append(token)
+            continue
+        if pending:
+            merged.append("".join(pending))
+            pending = []
+        merged.append(token)
+    if pending:
+        merged.append("".join(pending))
+    return merged
+
+
+def company_identity_fingerprint(name: str) -> str:
+    cleaned = clean_display_text(name).lower()
+    cleaned = re.sub(r"\([^)]*\)", " ", cleaned)
+    cleaned = cleaned.replace("&", " and ")
+    primary_clause = COMPANY_DESCRIPTOR_SPLIT_PATTERN.split(cleaned, maxsplit=1)[0]
+    tokens = merge_initialism_tokens(re.findall(r"[a-z0-9]+", primary_clause))
+    while tokens and tokens[-1] in COMPANY_LEGAL_SUFFIXES:
+        tokens.pop()
+    return " ".join(tokens)
+
+
+@lru_cache(maxsize=1)
+def load_company_aliases() -> dict[str, str]:
+    try:
+        payload = json.loads(COMPANY_ALIASES_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+
+    aliases: dict[str, str] = {}
+    for alias, canonical_name in payload.items():
+        alias_key = company_identity_fingerprint(str(alias))
+        canonical_display = clean_display_text(str(canonical_name))
+        if alias_key and canonical_display:
+            aliases[alias_key] = canonical_display
+    return aliases
+
+
+def canonical_company_name(name: str) -> str:
+    cleaned = clean_display_text(name)
+    if not cleaned:
+        return ""
+    return load_company_aliases().get(company_identity_fingerprint(cleaned), cleaned)
+
+
 def company_cache_key(name: str) -> str:
-    return normalize_match_text(name)
+    return company_identity_fingerprint(canonical_company_name(name))
+
+
+def compact_company_key(name: str) -> str:
+    return company_cache_key(name).replace(" ", "")
 
 
 def normalize_job_id(value: object) -> str:
