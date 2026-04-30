@@ -8,8 +8,8 @@ This file provides task instructions for AI agents working on the job applicatio
 
 | Phase | Status | Description | Archive |
 |-------|--------|-------------|---------|
-| **Phase 1** | ✅ Completed | Canonical Profile & Evidence Bank Extraction | [agents_archives/phase_1_profile_extraction.md](agents_archives/phase_1_profile_extraction.md) |
-| **Phase 2** | ✅ Completed | Fine-Tuning for Application Writing | [agents_archives/phase_2_finetuning_prep.md](agents_archives/phase_2_finetuning_prep.md) |
+| **Phase 1** | ✅ Completed | Canonical Profile & Evidence Bank Extraction | [phase_1_profile_extraction.md](phase_1_profile_extraction.md) |
+| **Phase 2** | ✅ Completed | Fine-Tuning for Application Writing | [phase_2_finetuning_prep.md](phase_2_finetuning_prep.md) |
 | **Phase 3** | 📋 Ready to Start | Inference Pipeline & Job Matching | (current file) |
 
 ### Completed Outputs
@@ -26,7 +26,7 @@ This file provides task instructions for AI agents working on the job applicatio
 application_materials/
   ├── Archive/          # Source resumes and cover letters (.docx)
   └── job_descriptions/ # Real job postings for training data
-agents_archives/        # Completed phase instructions
+docs/archive/agents_archives/  # Completed phase instructions
 derived_profile/        # Canonical profile and evidence bank
 training_data/          # Fine-tuning datasets
 scripts/                # Data preparation and validation scripts

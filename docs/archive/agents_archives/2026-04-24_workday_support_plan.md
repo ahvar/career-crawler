@@ -88,6 +88,6 @@ Only after the pilot succeeds should the repo decide whether it needs a provider
 
 ## Immediate Follow-Up Work
 
-- Update the Red Hat example notes in `workday_api.md` whenever we validate a detail-description endpoint or canonical public URL rule.
+- Update the Red Hat example notes in `docs/reference/workday_api.md` whenever we validate a detail-description endpoint or canonical public URL rule.
 - Implement the smallest production slice against Red Hat first instead of attempting general Workday discovery and full ATS abstraction in one step.
 - Keep Workday support out of the application-material generation path until the crawler side can reliably produce normalized matched jobs and full descriptions.

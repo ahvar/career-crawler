@@ -4,12 +4,13 @@ import asyncio
 import json
 import re
 from datetime import date
+from http.client import RemoteDisconnected
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from ats_config import load_workday_board_hints
-from ats_common import (
+from .config import load_workday_board_hints
+from .common import (
     AsyncRateLimiter,
     REMOTE_LOCATION_PATTERN,
     US_LOCATION_PATTERN,
@@ -25,13 +26,17 @@ from ats_common import (
     normalize_match_text,
     USER_AGENT,
 )
-from ats_models import CompanyAssessment, CrawlRun, JobMatchResult, MatchedJob, TargetCompany
+from .models import CompanyAssessment, CrawlRun, JobMatchResult, MatchedJob, TargetCompany
 
 
 WORKDAY_BOARD_HINTS = load_workday_board_hints(
     normalize_company_key=company_cache_key,
     normalize_text=clean_display_text,
 )
+
+ONSITE_LOCATION_PATTERN = re.compile(r"\b(on[ -]?site|in[ -]?office)\b", re.IGNORECASE)
+HYBRID_LOCATION_PATTERN = re.compile(r"\bhybrid\b", re.IGNORECASE)
+RETRIABLE_WORKDAY_ERRORS = (RemoteDisconnected, TimeoutError)
 
 
 def has_workday_board_hint(company_name: str) -> bool:
@@ -85,6 +90,14 @@ def is_target_workday_location(job_summary: dict, job_posting: dict) -> bool:
 
     remote_type = normalize_match_text(str(job_summary.get("remoteType") or ""))
     job_location_type = normalize_match_text(str(job_posting.get("jobLocationType") or ""))
+    normalized_location_name = normalize_match_text(location_name)
+    if ONSITE_LOCATION_PATTERN.search(remote_type) or ONSITE_LOCATION_PATTERN.search(location_name):
+        return False
+    if HYBRID_LOCATION_PATTERN.search(remote_type) or HYBRID_LOCATION_PATTERN.search(location_name):
+        return False
+    if normalized_location_name and not REMOTE_LOCATION_PATTERN.search(normalized_location_name):
+        return False
+
     applicant_location = job_posting.get("applicantLocationRequirements") or {}
     applicant_country = clean_display_text(str(applicant_location.get("name") or ""))
     job_location = job_posting.get("jobLocation") or {}
@@ -119,7 +132,7 @@ class WorkdayCrawler:
         api_url = build_workday_jobs_url(board_url, tenant, site_id)
         try:
             job_summaries = await self._fetch_all_job_summaries(api_url)
-        except (HTTPError, URLError, TimeoutError) as exc:
+        except (HTTPError, URLError, TimeoutError, RemoteDisconnected) as exc:
             return CompanyAssessment(company.name, [board_url], f"{tenant}/{site_id}", board_url, f"Network error: {exc}", source="workday")
 
         if not job_summaries:
@@ -162,7 +175,7 @@ class WorkdayCrawler:
         detail_url = build_workday_detail_url(board_url, external_path)
         try:
             detail_html = await self._fetch_text(detail_url)
-        except (HTTPError, URLError, TimeoutError) as exc:
+        except (HTTPError, URLError, TimeoutError, RemoteDisconnected) as exc:
             fallback_detail_url = build_workday_details_route(board_url, external_path)
             if fallback_detail_url == detail_url:
                 log_step(f"{company_name}: failed to fetch Workday detail for {detail_url}: {exc}")
@@ -170,7 +183,7 @@ class WorkdayCrawler:
             try:
                 detail_html = await self._fetch_text(fallback_detail_url)
                 detail_url = fallback_detail_url
-            except (HTTPError, URLError, TimeoutError) as fallback_exc:
+            except (HTTPError, URLError, TimeoutError, RemoteDisconnected) as fallback_exc:
                 log_step(
                     f"{company_name}: failed to fetch Workday detail for {detail_url} and fallback {fallback_detail_url}: {fallback_exc}"
                 )
@@ -216,12 +229,18 @@ class WorkdayCrawler:
 
     def _fetch_text_blocking(self, url: str) -> str:
         request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"})
-        with urlopen(request, timeout=self.timeout_seconds) as response:
-            status = getattr(response, "status", 200)
-            if status != 200:
-                raise HTTPError(url, status, f"Unexpected status {status}", hdrs=None, fp=None)
-            charset = response.headers.get_content_charset() or "utf-8"
-            return response.read().decode(charset, errors="replace")
+        for attempt in range(2):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    status = getattr(response, "status", 200)
+                    if status != 200:
+                        raise HTTPError(url, status, f"Unexpected status {status}", hdrs=None, fp=None)
+                    charset = response.headers.get_content_charset() or "utf-8"
+                    return response.read().decode(charset, errors="replace")
+            except RETRIABLE_WORKDAY_ERRORS:
+                if attempt == 1:
+                    raise
+        raise RuntimeError("Workday text fetch exhausted retries without returning a response")
 
     async def _post_json(self, url: str, payload: dict) -> dict:
         async with self.semaphore:
@@ -235,9 +254,21 @@ class WorkdayCrawler:
             method="POST",
             headers={"User-Agent": USER_AGENT, "Accept": "application/json", "Content-Type": "application/json"},
         )
-        with urlopen(request, timeout=self.timeout_seconds) as response:
-            status = getattr(response, "status", 200)
-            if status != 200:
-                raise HTTPError(url, status, f"Unexpected status {status}", hdrs=None, fp=None)
-            charset = response.headers.get_content_charset() or "utf-8"
-            return json.loads(response.read().decode(charset, errors="replace"))
+        for attempt in range(2):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    status = getattr(response, "status", 200)
+                    if status != 200:
+                        raise HTTPError(url, status, f"Unexpected status {status}", hdrs=None, fp=None)
+                    charset = response.headers.get_content_charset() or "utf-8"
+                    response_text = response.read().decode(charset, errors="replace")
+                    if not response_text.strip():
+                        raise URLError("Empty Workday JSON response")
+                    return json.loads(response_text)
+            except json.JSONDecodeError as exc:
+                if attempt == 1:
+                    raise URLError(f"Malformed Workday JSON response: {exc}")
+            except RETRIABLE_WORKDAY_ERRORS + (URLError,):
+                if attempt == 1:
+                    raise
+        raise RuntimeError("Workday JSON fetch exhausted retries without returning a response")

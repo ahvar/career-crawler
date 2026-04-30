@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Callable
 
 
-ROOT_DIR = Path(__file__).resolve().parent
-GREENHOUSE_SLUG_HINTS_PATH = ROOT_DIR / "greenhouse_slug_hints.json"
-WORKDAY_BOARD_HINTS_PATH = ROOT_DIR / "workday_board_hints.json"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+GREENHOUSE_SLUG_HINTS_PATH = PROJECT_ROOT / "greenhouse_slug_hints.json"
+PHENOM_SEARCH_HINTS_PATH = PROJECT_ROOT / "phenom_search_hints.json"
+WORKDAY_BOARD_HINTS_PATH = PROJECT_ROOT / "workday_board_hints.json"
 
 
 def _load_json_object(path: Path) -> dict:
@@ -31,6 +32,28 @@ def load_greenhouse_slug_hints(*, normalize_text: Callable[[str], str]) -> dict[
         )
         if normalized_values:
             hints[normalize_text(company_name)] = normalized_values
+    return hints
+
+
+def load_phenom_search_hints(
+    *,
+    normalize_company_key: Callable[[str], str],
+    normalize_text: Callable[[str], str],
+) -> dict[str, dict[str, str]]:
+    payload = _load_json_object(PHENOM_SEARCH_HINTS_PATH)
+    hints: dict[str, dict[str, str]] = {}
+    for company_name, hint in payload.items():
+        if not isinstance(hint, dict):
+            continue
+        normalized_company = normalize_company_key(str(company_name))
+        search_results_url = normalize_text(str(hint.get("search_results_url") or ""))
+        listing_mode = normalize_text(str(hint.get("listing_mode") or "phenom")) or "phenom"
+        if not normalized_company or not search_results_url:
+            continue
+        hints[normalized_company] = {
+            "search_results_url": search_results_url,
+            "listing_mode": listing_mode,
+        }
     return hints
 
 

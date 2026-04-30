@@ -7,8 +7,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from ats_common import AsyncRateLimiter, html_to_text, infer_title_matches, is_target_location, log_step, normalize_job_id, USER_AGENT, clean_display_text
-from ats_models import CompanyAssessment, CrawlRun, JobMatchResult, MatchedJob, TargetCompany
+from .common import AsyncRateLimiter, html_to_text, infer_title_matches, is_target_location, log_step, normalize_job_id, USER_AGENT, clean_display_text
+from .models import CompanyAssessment, CrawlRun, JobMatchResult, MatchedJob, TargetCompany
 
 
 GREENHOUSE_API_ROOT = "https://boards-api.greenhouse.io/v1/boards"

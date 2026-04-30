@@ -47,4 +47,4 @@ This note archives the completed cleanup work that followed the initial Workday 
 - `ats_workday.py`
 - `greenhouse_slug_hints.json`
 - `workday_board_hints.json`
-- `workday_api.md`
+- `docs/reference/workday_api.md`

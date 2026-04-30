@@ -293,9 +293,9 @@ The implementation consequence is that the crawler should:
 
 As of 2026-04-27, the crawler now has a production first pass for Workday-backed boards.
 
-- Workday crawling logic lives in `ats_workday.py`.
-- Shared ATS dataclasses live in `ats_models.py`.
-- Shared ATS config loading now lives in `ats_config.py`.
+- Workday crawling logic lives in `ats/workday.py`.
+- Shared ATS dataclasses live in `ats/models.py`.
+- Shared ATS config loading now lives in `ats/config.py`.
 - Supported Workday tenants are configured in `workday_board_hints.json` instead of being hardcoded in the crawler.
 - Matched detail pages are fetched from the public HTML page and parsed from JSON-LD `JobPosting`, with Open Graph fallback.
 - Detail fetches now retry a `/details/<job-slug>` route when the initial `externalPath`-derived public URL fails.

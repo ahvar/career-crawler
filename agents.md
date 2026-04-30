@@ -4,7 +4,7 @@
 
 This file provides current task instructions for AI agents working on the job application automation system.
 
-## Agent Handoff Status (2026-04-24)
+## Agent Handoff Status (2026-04-28)
 
 ### Completed In This Repo Since The Original Plan
 
@@ -23,9 +23,37 @@ This file provides current task instructions for AI agents working on the job ap
 - `crawl_greenhouse.py` now persists `matched_role_families` on future matched-job snapshots.
 - `crawl_greenhouse.py` partial runs now merge refreshed-company results into the existing matched-job snapshot instead of overwriting `crawler_cache/matched_jobs.jsonl` with only the latest subset.
 - The crawler now has a first production Workday slice: configured tenants can be crawled through the Workday listings API, matched roles fetch public detail HTML, and descriptions are extracted from JSON-LD with Open Graph fallback.
-- ATS-specific crawler code is now split into `ats_common.py`, `ats_config.py`, `ats_greenhouse.py`, `ats_models.py`, and `ats_workday.py`.
+- ATS-specific crawler code now lives under `ats/`, including `ats/common.py`, `ats/config.py`, `ats/greenhouse.py`, `ats/models.py`, and `ats/workday.py`.
+- Additional ATS helpers have now been extracted under `ats/`, including `ats/registry.py`, `ats/reporting.py`, `ats/storage.py`, `ats/tracking.py`, and `ats/workday_discovery.py`.
+- The ATS package filenames were cleaned up to short package-local names (`ats/common.py`, `ats/workday.py`, etc.) instead of `ats/ats_*.py`.
+- `crawl_greenhouse.py` was thinned further so CLI-only command handling now routes through a dedicated dispatch helper instead of a long inline branch block at the top of `run()`.
 - Greenhouse slug hints and Workday tenant hints now live in `greenhouse_slug_hints.json` and `workday_board_hints.json` with a shared config-loading path.
-- The current validated Workday tenants are Red Hat, Silicon Labs, 3M, and Amgen.
+- The current validated Workday tenants are Red Hat, Silicon Labs, 3M, Amgen, CDW, CrowdStrike, Sprinklr, Chevron, and DuPont.
+- A queue-driven Workday discovery path now exists via `crawl_greenhouse.py --discover-workday-boards`, with separate apply switches for confirmed boards (`--apply-discovered-workday-boards`) and clean `not_found` outcomes (`--apply-workday-not-found-results`).
+- Workday discovery probing now deduplicates equivalent jobs-API endpoints before probing, which materially reduces redundant requests during heuristic discovery runs.
+- A live 10-company Workday discovery dry run against the current queue produced 1 confirmed board (`CDW`) and 9 `not_found` results.
+- `CDW` has now been promoted into `workday_board_hints.json` and the ATS registry via the manual Workday-board CLI path.
+- A subsequent conservative 20-company Workday discovery dry run produced 1 additional confirmed board (`CrowdStrike`), 18 `not_found` results, and 1 discovery error for `Cisco ThousandEyes`.
+- `CrowdStrike` has now also been promoted into `workday_board_hints.json` and the ATS registry, while the `not_found` and `error` results from that batch were left unapplied.
+- Workday discovery handling has now been hardened so malformed JSON probe responses are skipped per candidate instead of surfacing as a fatal company-level discovery error.
+- A targeted Workday crawl refresh for `CDW` and `CrowdStrike` has now been completed. `CDW` currently has no Austin or US-remote matches, while `CrowdStrike` added 3 new matched jobs to the live snapshot.
+- A larger 50-company Workday discovery dry run has now been completed. It produced 1 confirmed board (`Sprinklr`) and 49 clean `not_found` results, with the `not_found` outcomes intentionally left unapplied.
+- `Sprinklr` has now been promoted into `workday_board_hints.json` and the ATS registry.
+- A targeted Workday crawl refresh for `Sprinklr` has now been completed and added 1 new live matched job.
+- `crawl_greenhouse.py --show-company-ats-report` now includes an explicit `Other ATS Follow-Up Candidates` section so the `check_other_ats` backlog is operator-visible.
+- Workday company-name normalization has now been hardened for legal-entity inputs so trailing suffixes like `N.A.`, `S.I.`, and `Pty Ltd`, plus long descriptive legal clauses, do not pollute cache keys or Workday tenant/site candidates.
+- Targeted Workday discovery now honors explicit `--company` values directly instead of silently dropping companies that are not already in the current `check_workday` queue.
+- A five-company legal-name stress validation pass (`American Family Mutual Insurance Company, S.I.`, `Bank of America, N.A.`, `Chevron U.S.A. Inc., a Pennsylvania corporation, by its Chevron Technical Center division`, `EQT Services Pty Ltd`, and `Advance Stores Company, Incorporated`) now runs through the corrected normalization and targeted discovery path.
+- That validation pass confirmed `Chevron` as a live Workday board and returned clean `not_found` outcomes for the other four companies with no parser or routing errors.
+- `Chevron` has now been promoted into `workday_board_hints.json` and the ATS registry.
+- A targeted Workday crawl refresh for `Chevron` has now been completed. It currently has no Austin or US-remote matches, with 182 jobs scanned.
+- A second targeted legal-name validation slice against the external Workday list has now confirmed `DuPont Specialty Products USA, LLC` as a live Workday board while returning clean `not_found` outcomes for the other nine companies in that slice.
+- `DuPont Specialty Products USA, LLC` has now been promoted into `workday_board_hints.json` and the ATS registry.
+- A targeted Workday crawl refresh for `DuPont Specialty Products USA, LLC` has now been completed. It currently has no Austin or US-remote matches, with 158 jobs scanned.
+- A deliberate alias pass has now started for confirmed legal-entity names. `Chevron U.S.A. Inc., a Pennsylvania corporation, by its Chevron Technical Center division` now aliases to `Chevron`, and `DuPont Specialty Products USA, LLC` now aliases to `DuPont` in `company_aliases.json`.
+- `workday_board_hints.json` and the persisted ATS registry now store those two companies under the canonical short brand names `Chevron` and `DuPont`.
+- An additional brand-obvious legal-name validation slice has now confirmed that `Amgen Inc.` resolves cleanly onto the already-confirmed `Amgen` Workday board, while the other companies in that slice returned clean `not_found` outcomes.
+- `Amgen Inc.` now aliases to `Amgen` in `company_aliases.json` so future external-company ingestion reuses the canonical short brand name immediately.
 - `crawl_greenhouse.py` default target companies were expanded with the next batch of candidate companies from `plan.txt`, and the expanded crawl state has now been refreshed.
 - Current tracked state already includes the applied Affirm PMI role, the applied Instacart Logistics Foundation role, later-application Affirm roles, reviewed-not-a-fit jobs, and company revisit dates for Affirm and Instacart.
 - `scripts/generate_application_materials.py` now has an initial customer-facing technical-role generation path that uses the Plenful implementation-specialist templates in `application_materials/` for solutions/support/writing-style roles.
@@ -44,6 +72,7 @@ This file provides current task instructions for AI agents working on the job ap
   - `crawler_cache/job_tracking.jsonl`
   - `crawler_cache/company_revisit.jsonl`
 - `crawler_cache/non_greenhouse_companies.txt` remains the canonical quick list of companies that did not resolve to Greenhouse, while `crawler_cache/company_revisit.jsonl` now carries the revisit schedule and ATS-research notes for following up on those companies.
+- `crawler_cache/company_registry.jsonl` is now the canonical ATS registry view, including `primary_ats`, `next_action`, and follow-up dates for Greenhouse / Workday / other-ATS research.
 - `README.md` documents the current crawler/reporting and job-status CLI workflow.
 - `README.md` now documents the ATS-aware crawler structure, Workday fallback behavior, and the external hint config files.
 - The adjacent-role generation path currently uses:
@@ -53,17 +82,31 @@ This file provides current task instructions for AI agents working on the job ap
 - Solutions/support roles still share the Plenful implementation-specialist template path, while `technical_writing` now uses:
   - `application_materials/reference_examples/technical_writing/vargas_technical_writer_resume_core_competencies.docx`
   - `application_materials/reference_examples/technical_writing/vargas_technical_writer_cover_letter_sprypoint.docx`
-- `crawler_cache/matched_jobs.jsonl` was refreshed again on 2026-04-24 after the `new_companies.txt` page-11 pass and now persists `matched_role_families` in the live snapshot.
-- The current snapshot contains 112 matched jobs total: 105 `software_engineering` matches, 6 `solutions_engineering` matches, and 1 `technical_support_engineering` match. New 2026-04-24 additions from the page-11 pass are Lightspeed Systems (4 matches): Customer Technical Support Specialist, Quality Assurance Engineer (User Acceptance Testing), Software Engineer (AI Native), and Solutions Engineer (Pre-Sales/Implementation). There are still no live `technical_writing` matches yet.
+- `crawler_cache/matched_jobs.jsonl` persists `matched_role_families` in the live snapshot.
+- The current snapshot contains 125 matched jobs total.
 - The 2026-04-23 page-8 pass resolved live Greenhouse boards for Care.com, Dialpad, EpisodeSix, Method, Natera, Praetorian, Shift Paradigm, SpaceX, Sustainment, Velocity Electronics, and Victory. Of those, only Natera and Praetorian produced current matches; Dialpad, EpisodeSix, and SpaceX had title-family hits but no Austin/US-remote matches.
 - The 2026-04-24 page-11 pass resolved live Greenhouse boards for CompuGroup Medical US, Encore Energeia, Hippo Insurance, Integra FEC, Lightspeed Systems, Sustainment, and Tecovas; `GOLF+` resolved a board with no open jobs. Of those page-11 boards, only Lightspeed Systems produced current matches.
 - The selected Natera target is `5811034004` (Genomics Data System DevOps Engineer-Temp), now tracked as `applied`, and the other new Natera/Praetorian additions from that pass remain tracked as `not_a_fit`.
 - `new_companies.txt` now holds the current page-11 batch that has already been crawled; future company-discovery work should resume from the next Built In Austin page after page 11 instead of rerunning this same list.
-- Current cache totals after the page-11 pass and non-Greenhouse revisit backfill are 184 searched companies, 127 known non-Greenhouse companies, 112 matched jobs, 57 tracked jobs, and 129 tracked company revisits. The current tracking report still shows 3 `applied`, 2 `pending_review`, 36 `not_a_fit`, 15 `revisit_later`, and 1 `archived`.
-- Resolved page-8 Natera/Praetorian batch notes are archived in `agents_archives/2026-04-24_page_8_natera_praetorian_resolution.md`.
-- The Workday implementation and config-extraction cleanup are archived in `agents_archives/2026-04-27_workday_config_and_module_extraction.md`.
+- Current cache totals are 281 searched companies, 190 known non-Greenhouse companies, 281 company ATS registry records, 125 matched jobs, 170 tracked jobs, and 198 tracked company revisits.
+- The current live discovery queue contains 90 companies with `next_action=check_workday`; confirmed Workday companies now total 9.
+- The explicit double-not-found backlog now contains 100 companies with `primary_ats=none` / `next_action=check_other_ats`.
+- `Cisco ThousandEyes` remains in the Workday queue after the latest batch because its discovery attempt returned a JSON parse error rather than a clean `not_found` result.
+- `Cisco ThousandEyes` now re-runs cleanly as `not_found` after the malformed-JSON discovery hardening, but it remains in the queue because no apply-mode decision has been made for `not_found` Workday results yet.
+- The latest Workday refresh recorded `CDW` as `No jobs in Austin/US-remote` with 277 jobs scanned and recorded `CrowdStrike` as `Matched jobs found` with 586 jobs scanned and 3 live matches.
+- The latest Workday refresh recorded `Sprinklr` as `Matched jobs found` with 112 jobs scanned and 1 live match.
+- The latest targeted Workday refresh recorded `Chevron` as `No jobs in Austin/US-remote` with 182 jobs scanned.
+- The latest targeted Workday refresh recorded `DuPont Specialty Products USA, LLC` as `No jobs in Austin/US-remote` with 158 jobs scanned.
+- Resolved page-8 Natera/Praetorian batch notes are archived in `docs/archive/agents_archives/2026-04-24_page_8_natera_praetorian_resolution.md`.
+- The Workday implementation and config-extraction cleanup are archived in `docs/archive/agents_archives/2026-04-27_workday_config_and_module_extraction.md`.
 - The current report command is:
   - `./envs/bin/python crawl_greenhouse.py --show-tracking-report`
+- The current ATS registry report command is:
+  - `./envs/bin/python crawl_greenhouse.py --show-company-ats-report`
+- The current Workday discovery dry-run command is:
+  - `./envs/bin/python crawl_greenhouse.py --discover-workday-boards --workday-discovery-limit 10`
+- The current command to apply clean Workday `not_found` results into `check_other_ats` is:
+  - `./envs/bin/python crawl_greenhouse.py --discover-workday-boards --apply-workday-not-found-results --workday-discovery-limit 10`
 - The current job-status update command is:
   - `./envs/bin/python crawl_greenhouse.py --set-job-status <status> --company-slug <slug> --job-id <id> ...`
 
@@ -78,8 +121,14 @@ Use these commands first before making broader changes:
 # Inspect crawler/cache counts
 ./envs/bin/python crawl_greenhouse.py --show-cache-stats
 
+# Inspect the ATS registry and Workday queue state
+./envs/bin/python crawl_greenhouse.py --show-company-ats-report
+
 # Sync known non-Greenhouse companies into ATS research revisit tracking
 ./envs/bin/python crawl_greenhouse.py --sync-non-greenhouse-revisits
+
+# Dry-run Workday discovery against the current queue
+./envs/bin/python crawl_greenhouse.py --discover-workday-boards --workday-discovery-limit 10
 
 # Re-generate the current seed software-engineering example
 ./envs/bin/python scripts/generate_application_materials.py \
@@ -111,29 +160,36 @@ Use these commands first before making broader changes:
 - The Plenful technical implementation specialist materials are now wired in as the shared customer-facing path for solutions/support roles.
 - Technical writing now has a dedicated template path, but it still needs validation against a real matched technical-writing job because none are live in the current snapshot.
 - The page-11 `new_companies.txt` batch has now been processed; future company-discovery work should resume from the next Built In Austin page after page 11.
-- The crawler role-family split is implemented and the current `crawler_cache/matched_jobs.jsonl` snapshot now includes `matched_role_families`, but only one adjacent-role example is currently present in live data.
+- The crawler role-family split is implemented and the current `crawler_cache/matched_jobs.jsonl` snapshot includes `matched_role_families`, but adjacent-role validation is still thin in live data.
 - No decision has been finalized to create a second fine-tuned model for adjacent roles; that evaluation is still pending.
+- Workday discovery exists, but broader heuristic coverage beyond the currently confirmed tenants is still incomplete.
 
 ### Recommended Next Steps For The Next Agent
 
-1. Validate the adjacent-role generation path on additional real examples beyond the Affirm TAM role, especially technical-support and technical-writing titles if or when they appear in the snapshot.
-2. Treat the Plenful implementation-specialist template as the current shared base for solutions/support roles unless new examples show structural mismatch.
-3. Validate the new technical-writing template path against the first live `technical_writing` match that appears in the snapshot.
-  When a live `technical_writing` match appears, run the full document-generation path against that job before changing the writer templates again.
-4. Review the four new Lightspeed Systems matches from the 2026-04-24 page-11 pass and decide whether any should be marked `pending_review`, `revisit_later`, or `not_a_fit` in `crawler_cache/job_tracking.jsonl`.
-5. If one of the new Lightspeed matches is a fit, generate tailored materials for that role and update the overlay state through `crawl_greenhouse.py --set-job-status ...`.
-6. Revisit the existing Airtable and Huntress solutions-role matches if they still need a workflow decision after the Natera/Praetorian batch is closed.
-7. Review and prioritize the new ATS-research revisit backlog in `crawler_cache/company_revisit.jsonl`, especially companies likely to use Workday or other supported boards.
-8. Only recommend a second model if the adjacent-role generation path still requires heavy manual rewriting after prompt/template-based evaluation.
+1. Continue larger conservative Workday discovery batches on the remaining 90-company `next_action=check_workday` backlog when ready, promoting only confirmed boards.
+2. Use the corrected targeted Workday discovery path on additional known-Workday legal-entity names to validate aliases and heuristics before bulk-ingesting more externally sourced companies.
+3. Review the accumulated Workday matches together once the next few confirmed boards have been refreshed, including the current `CrowdStrike` and `Sprinklr` additions.
+4. Continue the deliberate alias pass for externally supplied legal-entity company names now that normalization and targeted discovery are behaving correctly and have already confirmed `Chevron`, `DuPont`, and the legal-name variant `Amgen Inc.`.
+5. Validate the adjacent-role generation path on additional real examples beyond the Affirm TAM role, especially technical-support and technical-writing titles if they appear in the snapshot.
+6. Keep the Plenful implementation-specialist template as the current shared base for solutions/support roles unless new examples show structural mismatch.
+7. Validate the technical-writing template path against the first live `technical_writing` match before changing those writer templates again.
+
+### Future Plan Of Work
+
+These items are intentionally deferred rather than immediate follow-ups:
+
+1. Expand Workday discovery heuristics further beyond the current `wd1`-through-`wd5` and normalized site-id patterns if additional known-Workday companies continue returning clean `not_found` results.
+2. Decide when legal-entity aliases from external Workday lists should be promoted into `company_aliases.json` instead of relying only on normalization heuristics.
+3. Continue decomposing `crawl_greenhouse.py` by moving workflow mutation helpers such as `promote_company_to_workday`, `record_missing_workday_board`, and `upsert_job_tracking_record` into a dedicated module.
 
 ### Project Phases
 
 | Phase | Status | Description | Archive |
 |-------|--------|-------------|---------|
-| **Phase 1** | ✅ Completed | Canonical Profile & Evidence Bank Extraction | [agents_archives/phase_1_profile_extraction.md](agents_archives/phase_1_profile_extraction.md) |
-| **Phase 2** | ✅ Completed | Fine-Tuning for Application Writing | [agents_archives/phase_2_finetuning_prep.md](agents_archives/phase_2_finetuning_prep.md) |
-| **Phase 3** | 📋 Ready to Start | Inference Pipeline & Job Matching | [agents_archives/phase_3_inference_pipeline.md](agents_archives/phase_3_inference_pipeline.md) |
-| **Phase 3.5** | ✅ Completed | Enhanced Job Crawler with Caching & Job Title Matching | [agents_archives/phase_3_5_enhanced_job_crawler.md](agents_archives/phase_3_5_enhanced_job_crawler.md) |
+| **Phase 1** | ✅ Completed | Canonical Profile & Evidence Bank Extraction | [docs/archive/agents_archives/phase_1_profile_extraction.md](docs/archive/agents_archives/phase_1_profile_extraction.md) |
+| **Phase 2** | ✅ Completed | Fine-Tuning for Application Writing | [docs/archive/agents_archives/phase_2_finetuning_prep.md](docs/archive/agents_archives/phase_2_finetuning_prep.md) |
+| **Phase 3** | 📋 Ready to Start | Inference Pipeline & Job Matching | [docs/archive/agents_archives/phase_3_inference_pipeline.md](docs/archive/agents_archives/phase_3_inference_pipeline.md) |
+| **Phase 3.5** | ✅ Completed | Enhanced Job Crawler with Caching & Job Title Matching | [docs/archive/agents_archives/phase_3_5_enhanced_job_crawler.md](docs/archive/agents_archives/phase_3_5_enhanced_job_crawler.md) |
 | **Phase 3.6** | 🔧 In Progress | Workday ATS API Integration | (current file) |
 | **Phase 4** | 🚧 Planned | Greenhouse-Only Job Crawler | (see below) |
 | **Phase 5** | 🔧 In Progress | Automated Application Generation | (see below) |
@@ -151,8 +207,8 @@ Use these commands first before making broader changes:
 - `upload_training_data.py` - Upload helper configured for the application-writing dataset
 - `crawl_greenhouse.py` - ATS-aware crawler entrypoint with Greenhouse and Workday support
 - `test_workday_api.py` - Test script for Workday API job fetching
-- `workday_api.md` - Workday API documentation and request details
-- `crawler_questions.md` - Web scraping concepts: robots.txt, JavaScript, APIs
+- `docs/reference/workday_api.md` - Workday API documentation and request details
+- `docs/reference/crawler_questions.md` - Web scraping concepts: robots.txt, JavaScript, APIs
 - `README.md` - Crawler usage and cache documentation
 - `scripts/generate_application_materials.py` - Separate generation pipeline for tailored resumes and cover letters
 - `application_materials/generated/` - First-pass generated application outputs and normalized job descriptions
@@ -283,7 +339,7 @@ Non-Greenhouse companies are now tracked in `non_greenhouse_companies.txt` and r
 application_materials/
   ├── Archive/          # Source resumes and cover letters (.docx)
   └── job_descriptions/ # Real job postings for training data
-agents_archives/        # Completed phase instructions
+docs/archive/agents_archives/  # Completed phase instructions
 derived_profile/        # Canonical profile and evidence bank
 training_data/          # Fine-tuning datasets
 scripts/                # Data preparation and validation scripts
@@ -410,8 +466,8 @@ See `test_workday_api.py` for a working example using Red Hat's Workday instance
 
 ## Related Files
 - `test_workday_api.py` - Working API test script
-- `workday_api.md` - Captured API request details
-- `crawler_questions.md` - Context on JavaScript vs API approaches
+- `docs/reference/workday_api.md` - Captured API request details
+- `docs/reference/crawler_questions.md` - Context on JavaScript vs API approaches
 - `crawl_greenhouse.py` - Main crawler entrypoint for Greenhouse-based job discovery
 
 ---
@@ -419,7 +475,7 @@ See `test_workday_api.py` for a working example using Red Hat's Workday instance
 # 📋 Phase 3: Inference Pipeline & Job Matching
 
 **Status:** Ready to start (detailed plan archived)  
-**See:** [agents_archives/phase_3_inference_pipeline.md](agents_archives/phase_3_inference_pipeline.md)
+**See:** [docs/archive/agents_archives/phase_3_inference_pipeline.md](docs/archive/agents_archives/phase_3_inference_pipeline.md)
 
 ## Quick Overview
 Build end-to-end inference that converts matched jobs + candidate profile → tailored applications:
