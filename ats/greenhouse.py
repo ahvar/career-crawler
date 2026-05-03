@@ -53,6 +53,7 @@ class GreenhouseCrawler:
 
         log_step(f"{company.name}: trying Greenhouse slugs {', '.join(attempted_slugs)}")
         saw_empty_board = False
+        empty_board_slug: str | None = None
         for slug in attempted_slugs:
             try:
                 jobs_payload = await self._fetch_json(greenhouse_jobs_url(slug))
@@ -67,6 +68,7 @@ class GreenhouseCrawler:
             job_summaries = jobs_payload.get("jobs") or []
             if not job_summaries:
                 saw_empty_board = True
+                empty_board_slug = slug
                 log_step(f"{company.name}: slug {slug} has no open jobs")
                 continue
 
@@ -79,7 +81,13 @@ class GreenhouseCrawler:
             return CompanyAssessment(company.name, attempted_slugs, slug, greenhouse_board_url(slug), status, jobs_seen=len(job_summaries), matched_jobs=matched_jobs)
 
         final_status = "No open jobs" if saw_empty_board else "Greenhouse board not found"
-        return CompanyAssessment(company.name, attempted_slugs, None, None, final_status)
+        return CompanyAssessment(
+            company.name,
+            attempted_slugs,
+            empty_board_slug,
+            greenhouse_board_url(empty_board_slug) if empty_board_slug else None,
+            final_status,
+        )
 
     async def _fetch_job_details(self, *, company_name: str, slug: str, jobs: list[dict]) -> list[JobMatchResult]:
         return await asyncio.gather(

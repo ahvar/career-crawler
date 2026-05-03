@@ -1,78 +1,89 @@
-# Built In Austin checkpoint: the companies below were collected from page 19.
-# When resuming manual additions from Built In, start from page 19. Earlier pages have already been processed.
+# Built In Austin checkpoint: the companies below were collected from page 25.
+# When resuming manual additions from Built In, start from page 25. Earlier pages have already been processed.
 
-
-
-
-
-WP Engine
-UFCU
-Routefusion
-
-Nutrabolt
-All Options
-JLL
-Reflex
-SchoolLinks
-Forcepoint
-BetterUp
-Aquaria
-QuoteWell
-Zendesk
-TerraFirma, Inc
-The Zebra
-Lee Tilford Agency, Inc.
-Aalo Atomics
-Maxwell Locke & Ritter LLP
-Baxter Planning
-NextWork
-Percepto
-BizScout
-Diligent Robotics
-athenahealth
-UpEquity
-Quali
-Mesa
-Telnyx
-Truemed
-Verisoul
-Gartner
-Episode Six
-Cyberhill Partners
-Planview
-BadJupiter
-Kargo
-Favish
-Remedy
-Side Label Productions
-Eagle Eye Networks
-Noow
-Firefly Aerospace
-Balyasny Asset Management
-Quansight
-Drone Dispatch
-Zivid
-Harte Hanks
-UneeQ
-Austin Grooming
+Vendidit
+Solis
+Full Fridge
+ePatientFinder
+MindBridge
+Saatva
+LitLingo
+CODE D'AZUR
+Austin Ventures
+Found Health
+Network Security Services
+Mynt Box
+Archetype Entertainment
+EX Squared
 Guideline
-Playlist Push
+Liquibase
+data.world
+Adapter
+System Surveyor
+Lettuce
+Shango
+J R Thermal
+Hiking with Geeks
+Vytalyx
+ShipStation
+Certinia
+Identrophy
+Local Web Leads, LP
+Corvia
+TrustRadius
+BWE
+Dwelling
+Validere
+The Folde
+Softvision
+Sync1Systems
+Certified eSupport
+Datafiniti
+Ignite Outdoor Kitchens
+Concierge Auctions
+R/CS
+Devolver Digital
+deal.ai
+Noow
+Quarri Technologies
 ElecTrip
-Vital Farms
-Makepath
-VML
-Circus Street
-8fig
-Sync1 Systems
-OneSeventeen Media
-Mighty Citizen
-ionicpartners
-Workweek
-Nikk Nguyen Photography
-OutBox
-Ghost Machine VR Studio
-Leadwerks Software
-Instana
+CLEAR
+Adometry
+Gest
+Fourth
+Gone!
+Treble Public Relations
+Shoutz
+OnTraqAI
+gamigo group
+BOXX Technologies
+Spreetail
+Buildxact
+sonarDesign
+CXL
+Aspire Food Group
+Trusource Labs
+Notley
+Encoura
+JustLegal
+Invitae
+FinancialForce
+Unello Design
+SG Analytics
+DemandFood
+CoSell
+Skout Organic
+Nexersys
+Atlas Wearables
+Katana Graph
+LUCKIE
+Juniper Square
+BlueSky Fitness
+Progress UX Research
+Vidalytics, LLC
+
+
+
 
 
 
