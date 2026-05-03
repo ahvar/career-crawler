@@ -61,6 +61,7 @@ Available flags:
 - `--apply-workday-not-found-results`: persist clean Workday `not_found` discovery results so double-not-found companies move into `check_other_ats`
 - `--workday-discovery-limit`: maximum number of queued companies to probe for Workday boards
 - `--set-job-status`: upsert a job-level tracking record with one of `pending_review`, `applied`, `revisit_later`, `not_a_fit`, or `archived`
+- `--backfill-workday-snapshot-details`: refresh existing Workday snapshot rows with live descriptions and canonical job URLs; combine with `--company` to scope the refresh
 - `--company-name`: canonical company name used with `--set-company-workday-board`
 - `--workday-tenant`: Workday tenant used with `--set-company-workday-board`
 - `--workday-site-id`: Workday site id used with `--set-company-workday-board`
@@ -208,6 +209,12 @@ You can probe the current Workday discovery queue without changing hints or over
 
 ```bash
 ./envs/bin/python crawl_greenhouse.py --discover-workday-boards --workday-discovery-limit 10
+```
+
+You can refresh cached Workday snapshot rows with live descriptions and canonical URLs when seeded or older rows are incomplete:
+
+```bash
+./envs/bin/python crawl_greenhouse.py --backfill-workday-snapshot-details --company GEICO
 ```
 
 You can persist confirmed discovery outcomes when you want to update the tracker:

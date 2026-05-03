@@ -156,7 +156,58 @@ def normalize_match_text(text: str) -> str:
 
 
 def infer_generation_role_family(title: str, description: str = "") -> str:
+    title_normalized = normalize_match_text(title)
     normalized = normalize_match_text(f"{title} {description}")
+    if any(
+        token in title_normalized
+        for token in (
+            "software engineer",
+            "data engineer",
+            "ai engineer",
+            "backend engineer",
+            "backend developer",
+            "devops engineer",
+            "qa engineer",
+            "quality assurance engineer",
+            "test engineer",
+            "applications engineer",
+            "product engineer",
+            "developer",
+        )
+    ):
+        return "software_engineering"
+    if any(token in title_normalized for token in ("technical writer", "documentation writer", "documentation specialist")):
+        return "technical_writing"
+    if any(
+        token in title_normalized
+        for token in (
+            "solutions engineer",
+            "customer solutions engineer",
+            "solutions architect",
+            "technical account manager",
+            "customer success engineer",
+            "implementation specialist",
+            "integration specialist",
+            "technical trainer",
+            "customer onboarding specialist",
+        )
+    ):
+        return "solutions_engineering"
+    if any(
+        token in title_normalized
+        for token in (
+            "technical support engineer",
+            "technical support specialist",
+            "product support specialist",
+            "software support engineer",
+            "application specialist",
+            "tier 2 support",
+            "tier 3 support",
+            "scientific support specialist",
+            "support engineer",
+        )
+    ):
+        return "technical_support_engineering"
     if any(token in normalized for token in ("technical writer", "documentation writer", "documentation specialist")):
         return "technical_writing"
     if any(
